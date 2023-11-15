@@ -172,7 +172,7 @@ devDependencies:
     version: 2.5.0
   '@rollup/plugin-babel':
     specifier: ^6.0.3
-    version: 6.0.4(@babel/core@7.23.2)
+    version: 6.0.4(@babel/core@7.23.2)(rollup@4.4.1)
   '@simple-dom/document':
     specifier: ^1.4.0
     version: 1.4.0
@@ -329,6 +329,9 @@ devDependencies:
   recast:
     specifier: ^0.22.0
     version: 0.22.0
+  rollup:
+    specifier: ^4.2.0
+    version: 4.4.1
   rsvp:
     specifier: ^4.8.5
     version: 4.8.5
@@ -2719,7 +2722,7 @@ packages:
       - supports-color
     dev: true
 
-  /@rollup/plugin-babel@6.0.4(@babel/core@7.23.2):
+  /@rollup/plugin-babel@6.0.4(@babel/core@7.23.2)(rollup@4.4.1):
     resolution: {integrity: sha512-YF7Y52kFdFT/xVSuVdjkV5ZdX/3YtmX0QulG+x0taQOtJdHYzVU61aSSkAgVJ7NOv6qPkIYiJSgSWWN/DM5sGw==}
     engines: {node: '>=14.0.0'}
     peerDependencies:
@@ -2734,10 +2737,11 @@ packages:
     dependencies:
       '@babel/core': 7.23.2
       '@babel/helper-module-imports': 7.22.15
-      '@rollup/pluginutils': 5.0.5
+      '@rollup/pluginutils': 5.0.5(rollup@4.4.1)
+      rollup: 4.4.1
     dev: true
 
-  /@rollup/pluginutils@5.0.5:
+  /@rollup/pluginutils@5.0.5(rollup@4.4.1):
     resolution: {integrity: sha512-6aEYR910NyP73oHiJglti74iRyOwgFU4x3meH/H8OJx6Ry0j6cOVZ5X/wTvub7G7Ao6qaHBEaNsV3GLJkSsF+Q==}
     engines: {node: '>=14.0.0'}
     peerDependencies:
@@ -2749,6 +2753,7 @@ packages:
       '@types/estree': 1.0.2
       estree-walker: 2.0.2
       picomatch: 2.3.1
+      rollup: 4.4.1
     dev: true
 
   /@rollup/rollup-android-arm-eabi@4.4.1:
@@ -8152,7 +8157,7 @@ packages:
       - supports-color
 
   /hawk@1.1.1:
-    resolution: {integrity: sha512-am8sVA2bCJIw8fuuVcKvmmNnGFUGW8spTkVtj2fXTEZVkfN42bwFZFtDem57eFi+NSxurJB8EQ7Jd3uCHLn8Vw==}
+    resolution: {integrity: sha1-h81JH5tG5OKurKM1QWdmiF0tHtk=}
     engines: {node: '>=0.8.0'}
     deprecated: This module moved to @hapi/hawk. Please make sure to switch over as this distribution is no longer supported and may contain bugs and critical security issues.
     requiresBuild: true
