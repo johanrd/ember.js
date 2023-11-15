@@ -1,10 +1,9 @@
-/* eslint-env node */
-
 import { dirname, parse, resolve } from 'node:path';
 import { existsSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import glob from 'glob';
+import { babel } from '@rollup/plugin-babel';
 
 const require = createRequire(import.meta.url);
 const { PackageCache } = require('@embroider/shared-internals');
@@ -19,6 +18,7 @@ export default {
     format: 'es',
     dir: 'dist',
   },
+  plugins: [babel({ babelHelpers: 'bundled', extensions: ['.js', '.ts'] }), resolveTS()],
 };
 
 function packages() {
@@ -143,5 +143,27 @@ function entrypoint(pkg, which) {
     dir,
     base,
     path: resolved,
+  };
+}
+
+function resolveTS() {
+  return {
+    name: 'require-shim',
+    async resolveId(source, importer) {
+      let result = await this.resolve(source, importer);
+      if (result === null) {
+        // the rest of rollup couldn't find it
+        let candidate;
+        if (source === '.') {
+          candidate = resolve(dirname(importer), source) + '/index.ts';
+        } else if (source.startsWith('.')) {
+          candidate = resolve(dirname(importer), source) + '.ts';
+        }
+        if (candidate && existsSync(candidate)) {
+          return candidate;
+        }
+      }
+      return result;
+    },
   };
 }
