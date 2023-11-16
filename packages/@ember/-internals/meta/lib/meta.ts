@@ -60,17 +60,11 @@ if (DEBUG) {
 
 export const UNDEFINED = symbol('undefined');
 
-const enum ListenerKind {
-  ADD = 0,
-  ONCE = 1,
-  REMOVE = 2,
-}
-
 interface StringListener {
   event: string;
   target: null;
   method: string;
-  kind: ListenerKind.ADD | ListenerKind.ONCE | ListenerKind.REMOVE;
+  kind: 'ADD' | 'ONCE' | 'REMOVE';
   sync: boolean;
 }
 
@@ -78,7 +72,7 @@ interface FunctionListener {
   event: string;
   target: object | null;
   method: Function;
-  kind: ListenerKind.ADD | ListenerKind.ONCE | ListenerKind.REMOVE;
+  kind: 'ADD' | 'ONCE' | 'REMOVE';
   sync: boolean;
 }
 
@@ -363,7 +357,7 @@ export class Meta {
       counters!.addToListenersCalls++;
     }
 
-    this.pushListener(eventName, target, method, once ? ListenerKind.ONCE : ListenerKind.ADD, sync);
+    this.pushListener(eventName, target, method, once ? 'ONCE' : 'ADD', sync);
   }
 
   /** @internal */
@@ -372,14 +366,14 @@ export class Meta {
       counters!.removeFromListenersCalls++;
     }
 
-    this.pushListener(eventName, target, method, ListenerKind.REMOVE);
+    this.pushListener(eventName, target, method, 'REMOVE');
   }
 
   private pushListener(
     event: string,
     target: object | null,
     method: Function | PropertyKey,
-    kind: ListenerKind.ADD | ListenerKind.ONCE | ListenerKind.REMOVE,
+    kind: 'ADD' | 'ONCE' | 'REMOVE',
     sync = false
   ): void {
     let listeners = this.writableListeners();
@@ -404,11 +398,7 @@ export class Meta {
 
       assert(
         'You attempted to remove a function listener which did not exist on the instance, which means you may have attempted to remove it before it was added.',
-        !(
-          !this.isPrototypeMeta(this.source) &&
-          typeof method === 'function' &&
-          kind === ListenerKind.REMOVE
-        )
+        !(!this.isPrototypeMeta(this.source) && typeof method === 'function' && kind === 'REMOVE')
       );
 
       listeners.push({
@@ -424,7 +414,7 @@ export class Meta {
 
       // If the listener is our own listener and we are trying to remove it, we
       // want to splice it out entirely so we don't hold onto a reference.
-      if (kind === ListenerKind.REMOVE && listener.kind !== ListenerKind.REMOVE) {
+      if (kind === 'REMOVE' && listener.kind !== 'REMOVE') {
         listeners.splice(i, 1);
       } else {
         assert(
@@ -433,11 +423,7 @@ export class Meta {
           }' twice to ${target} as both sync and async. Observers must be either sync or async, they cannot be both. This is likely a mistake, you should either remove the code that added the observer a second time, or update it to always be sync or async. The method was ${String(
             method
           )}.`,
-          !(
-            listener.kind === ListenerKind.ADD &&
-            kind === ListenerKind.ADD &&
-            listener.sync !== sync
-          )
+          !(listener.kind === 'ADD' && kind === 'ADD' && listener.sync !== sync)
         );
 
         // update own listener
@@ -560,17 +546,14 @@ export class Meta {
       for (let listener of listeners) {
         // REMOVE listeners are placeholders that tell us not to
         // inherit, so they never match. Only ADD and ONCE can match.
-        if (
-          listener.event === eventName &&
-          (listener.kind === ListenerKind.ADD || listener.kind === ListenerKind.ONCE)
-        ) {
+        if (listener.event === eventName && (listener.kind === 'ADD' || listener.kind === 'ONCE')) {
           if (result === undefined) {
             // we create this array only after we've found a listener that
             // matches to avoid allocations when no matches are found.
             result = [] as any[];
           }
 
-          result.push(listener.target!, listener.method, listener.kind === ListenerKind.ONCE);
+          result.push(listener.target!, listener.method, listener.kind === 'ONCE');
         }
       }
     }
@@ -592,7 +575,7 @@ export class Meta {
         // REMOVE listeners are placeholders that tell us not to
         // inherit, so they never match. Only ADD and ONCE can match.
         if (
-          (listener.kind === ListenerKind.ADD || listener.kind === ListenerKind.ONCE) &&
+          (listener.kind === 'ADD' || listener.kind === 'ONCE') &&
           listener.event.indexOf(':change') !== -1
         ) {
           if (result === undefined) {
