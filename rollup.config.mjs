@@ -1,12 +1,12 @@
-import { dirname, parse, resolve } from 'node:path';
-import { existsSync } from 'node:fs';
+import { dirname, parse, resolve, relative } from 'node:path';
+import { existsSync, readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import glob from 'glob';
 import { babel } from '@rollup/plugin-babel';
 
 const require = createRequire(import.meta.url);
-const { PackageCache } = require('@embroider/shared-internals');
+const { PackageCache, hbsToJS } = require('@embroider/shared-internals');
 const packageCache = PackageCache.shared('ember-source', dirname(fileURLToPath(import.meta.url)));
 
 export default {
@@ -18,7 +18,12 @@ export default {
     format: 'es',
     dir: 'dist',
   },
-  plugins: [babel({ babelHelpers: 'bundled', extensions: ['.js', '.ts'] }), resolveTS()],
+  plugins: [
+    babel({ babelHelpers: 'bundled', extensions: ['.js', '.ts'] }),
+    resolveTS(),
+    hbs(),
+    version(),
+  ],
 };
 
 function packages() {
@@ -164,6 +169,40 @@ function resolveTS() {
         }
       }
       return result;
+    },
+  };
+}
+
+function hbs() {
+  return {
+    name: 'hbs',
+    load(id) {
+      if (id[0] !== '\0' && id.endsWith('.hbs')) {
+        let input = readFileSync(id, 'utf8');
+        let code = hbsToJS(input, {
+          filename: relative(dirname(fileURLToPath(import.meta.url)), id),
+        });
+        return {
+          code,
+        };
+      }
+    },
+  };
+}
+
+function version() {
+  return {
+    name: 'ember-version',
+    load(id) {
+      if (id[0] !== '\0' && id.endsWith('/ember/index.ts')) {
+        let input = readFileSync(id, 'utf8');
+        return {
+          code: input.replace(
+            'VERSION_GOES_HERE',
+            JSON.parse(readFileSync('./package.json', 'utf8')).version
+          ),
+        };
+      }
     },
   };
 }

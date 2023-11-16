@@ -73,7 +73,6 @@ import {
   isSerializationFirstNode,
   type TemplatesRegistry,
 } from '@ember/-internals/glimmer';
-import Version from './version';
 import * as views from '@ember/-internals/views';
 import EmberContainerDebugAdapter from '@ember/debug/container-debug-adapter';
 import EmberDataAdapter from '@ember/debug/data-adapter';
@@ -449,7 +448,7 @@ namespace Ember {
     @type String
     @public
   */
-  export const VERSION = Version;
+  export const VERSION = 'VERSION_GOES_HERE';
 
   export const ViewUtils = {
     // ****@ember/-internals/views****
