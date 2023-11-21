@@ -153,7 +153,7 @@ function entrypoint(pkg, which) {
 
 function resolveTS() {
   return {
-    name: 'require-shim',
+    name: 'resolve-ts',
     async resolveId(source, importer) {
       let result = await this.resolve(source, importer);
       if (result === null) {
@@ -194,7 +194,7 @@ function version() {
   return {
     name: 'ember-version',
     load(id) {
-      if (id[0] !== '\0' && id.endsWith('/ember/index.ts')) {
+      if (id[0] !== '\0' && id.endsWith('/ember/version.ts')) {
         let input = readFileSync(id, 'utf8');
         return {
           code: input.replace(
