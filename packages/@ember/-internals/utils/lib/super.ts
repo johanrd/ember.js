@@ -68,6 +68,10 @@ export function setListeners(func: Function, listeners: string[]): void {
 
 const IS_WRAPPED_FUNCTION_SET = new WeakSet();
 
+export function isWrappedFunction(func: Function): boolean {
+  return IS_WRAPPED_FUNCTION_SET.has(func);
+}
+
 /**
   Wraps the passed function so that `this._super` will point to the superFunc
   when the function is invoked. This is the primitive we use to implement

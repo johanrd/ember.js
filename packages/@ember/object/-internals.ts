@@ -3,7 +3,7 @@ export { guidFor } from '@ember/-internals/utils';
 
 import { addListener } from '@ember/-internals/metal';
 import { assert } from '@ember/debug';
-import { symbol } from '@ember/-internals/utils';
+import { isWrappedFunction, symbol } from '@ember/-internals/utils';
 import { DEBUG } from '@glimmer/env';
 import EmberObject from '.';
 
@@ -38,8 +38,12 @@ if (DEBUG) {
     }
 
     [ASSERT_INIT_WAS_CALLED]() {
+      let superCall = isWrappedFunction(this.init)
+        ? '`this._super(...arguments)`'
+        : '`super.init(...arguments);`';
+
       assert(
-        `You must call \`super.init(...arguments);\` when overriding \`init\` on a framework object. Please update ${this} to call \`super.init(...arguments);\` from \`init\`.`,
+        `You must call ${superCall} when overriding \`init\` on a framework object. Please update ${this} to call ${superCall} from \`init\`.`,
         this[INIT_WAS_CALLED]
       );
     }

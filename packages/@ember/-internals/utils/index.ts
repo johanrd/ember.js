@@ -17,6 +17,7 @@ export {
   checkHasSuper,
   ROOT,
   wrap,
+  isWrappedFunction,
   observerListenerMetaFor,
   setObservers,
   setListeners,
