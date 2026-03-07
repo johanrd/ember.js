@@ -269,6 +269,49 @@ moduleFor(
       });
     }
 
+    ['@test Bad timing issue ☠️'](assert) {
+      let appDeferred = RSVP.defer();
+
+      this.router.map(function () {
+        this.route('dummy');
+      });
+
+      this.addTemplate(
+        'application_loading',
+        `
+        <div id="toplevel-loading">TOPLEVEL LOADING</div>
+      `
+      );
+      this.add(
+        'route:application',
+        class extends Route {
+          model() {
+            return appDeferred.promise;
+          }
+        }
+      );
+
+      this.add(
+        'route:dummy',
+        class extends Route {
+          @service('router') router;
+          redirect() {
+            return RSVP.resolve().then(() => {
+              this.router.replaceWith('index');
+            });
+          }
+        }
+      );
+
+      let promise = this.visit('/dummy').then(() => {
+        assert.ok(true);
+      });
+
+      appDeferred.resolve();
+
+      return promise;
+    }
+
     ['@test Enter child-loading route with correct query parameters'](assert) {
       assert.expect(8);
       let deferred = RSVP.defer();
