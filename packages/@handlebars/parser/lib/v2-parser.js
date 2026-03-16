@@ -502,11 +502,21 @@ export function v2ParseWithoutProcessing(input, options) {
         }
 
         // It's {{else something}} — openInverseChain
-        // Restore to after 'else'
-        pos = afterElse;
-        line = afterStripLine;
-        col = afterStripCol;
-        advanceTo(afterElse);
+        // We already advanced to afterElse on line 482, and may have
+        // scanned past whitespace/~ looking for }}. Reset to afterElse
+        // and re-skip whitespace to position correctly.
+        // Note: line/col were correctly tracked by advanceTo(afterElse),
+        // we just need to reset pos and re-advance if we overshot.
+        if (pos !== afterElse) {
+          // We overshot — need to recompute. Save the correct state from
+          // when we were at afterElse. Since advanceTo already tracked
+          // line/col to afterElse, and then we only moved forward through
+          // whitespace/~, we need to go back. Recompute from scratch:
+          pos = afterStripPos;
+          line = afterStripLine;
+          col = afterStripCol;
+          advanceTo(afterElse);
+        }
         skipWs();
         const raw = input.substring(startPos, pos);
         return {
@@ -808,20 +818,22 @@ export function v2ParseWithoutProcessing(input, options) {
   }
 
   function parseSexprOrPath() {
+    const startP = savePos(); // save pos BEFORE sub-expression
     const sexpr = parseSexpr();
     skipWs();
     // Check if followed by separator (making it a path with sexpr head)
     if (cc() === CH_DOT || cc() === CH_SLASH) {
-      return parsePath(false, sexpr);
+      return parsePath(false, sexpr, startP);
     }
     return sexpr;
   }
 
   function parseArrayLiteralOrPath() {
+    const startP = savePos(); // save pos BEFORE array literal
     const arr = parseArrayLiteral();
     skipWs();
     if (cc() === CH_DOT || cc() === CH_SLASH) {
-      return parsePath(false, arr);
+      return parsePath(false, arr, startP);
     }
     return arr;
   }
@@ -908,8 +920,8 @@ export function v2ParseWithoutProcessing(input, options) {
     return preparePath(true, false, segments, locFrom(startP));
   }
 
-  function parsePath(data, exprHead) {
-    const startP = savePos();
+  function parsePath(data, exprHead, exprHeadStartP) {
+    const startP = exprHeadStartP || savePos();
 
     if (exprHead) {
       // exprHead sep pathSegments
@@ -1676,9 +1688,13 @@ export function v2ParseWithoutProcessing(input, options) {
     if (!startsWith('}}}}')) error("Expected '}}}}' to close raw block");
     advanceTo(pos + 4);
 
-    // Scan raw content until {{{{/path}}}}
+    // Scan raw content until {{{{/openName}}}}
+    // In the Jison 'raw' state, EVERYTHING is content except {{{{/name}}}}.
+    // Nested {{{{ (not followed by /) is also content.
+    // We track a nesting depth: {{{{ pushes, {{{{/name}}}} pops.
     const openName = path.original || path.parts?.join?.('/') || '';
     const contents = [];
+    let rawDepth = 1; // we're inside one raw block
 
     while (pos < len) {
       const idx = input.indexOf('{{{{', pos);
@@ -1697,58 +1713,75 @@ export function v2ParseWithoutProcessing(input, options) {
         });
       }
 
-      // Check if it's {{{{/ (close)
+      // Check if it's {{{{/ (potential close)
       if (input.charCodeAt(idx + 4) === CH_SLASH) {
-        advanceTo(idx + 5); // past {{{{/
-        const closeId = scanId();
-        if (!closeId) error('Expected identifier in raw block close');
-        if (!startsWith('}}}}')) error("Expected '}}}}' to close raw block end tag");
-        advanceTo(pos + 4);
+        // Try to match {{{{/openName}}}}
+        const closeStart = idx + 5;
+        let closeEnd = closeStart;
+        while (closeEnd < len && isIdChar(input.charCodeAt(closeEnd))) closeEnd++;
+        const closeId = input.substring(closeStart, closeEnd);
 
-        if (closeId !== openName) {
-          throw new Exception(openName + " doesn't match " + closeId, { loc: path.loc });
+        if (input.startsWith('}}}}', closeEnd)) {
+          if (rawDepth === 1) {
+            if (closeId === openName) {
+              // This is our close tag
+              advanceTo(closeEnd + 4);
+
+              // Build the raw block — Jison uses the overall block loc for program too
+              const loc = locFrom(open.start);
+              const program = {
+                type: 'Program',
+                body: contents,
+                strip: {},
+                loc,
+              };
+
+              return {
+                type: 'BlockStatement',
+                path,
+                params,
+                hash,
+                program,
+                openStrip: {},
+                inverseStrip: {},
+                closeStrip: {},
+                loc,
+              };
+            }
+            // Mismatch: close tag doesn't match open
+            throw new Exception(openName + " doesn't match " + closeId, { loc: path.loc });
+          }
+
+          if (closeId) {
+            // It's a close for a nested raw block — just decrement depth and treat as content
+            rawDepth--;
+          }
         }
 
-        // Build the raw block
-        const loc = locFrom(open.start);
-        const program = {
-          type: 'Program',
-          body: contents,
-          strip: {},
-          loc: contents.length
-            ? makeLoc(
-                contents[0].loc.start.line,
-                contents[0].loc.start.column,
-                contents[contents.length - 1].loc.end.line,
-                contents[contents.length - 1].loc.end.column
-              )
-            : loc,
-        };
-
-        return {
-          type: 'BlockStatement',
-          path,
-          params,
-          hash,
-          program,
-          openStrip: {},
-          inverseStrip: {},
-          closeStrip: {},
-          loc,
-        };
+        // Not our close — treat {{{{/...}}}} as content
+        const contentStart = savePos();
+        const endOfTag = closeEnd + (input.startsWith('}}}}', closeEnd) ? 4 : 0);
+        const text = input.substring(idx, endOfTag || idx + 5);
+        advanceTo(endOfTag || idx + 5);
+        contents.push({
+          type: 'ContentStatement',
+          original: text,
+          value: text,
+          loc: locFrom(contentStart),
+        });
+      } else {
+        // {{{{ not followed by / — nested raw block opener, treat as content
+        rawDepth++;
+        const contentStart = savePos();
+        advanceTo(idx + 4);
+        const text = '{{{{';
+        contents.push({
+          type: 'ContentStatement',
+          original: text,
+          value: text,
+          loc: locFrom(contentStart),
+        });
       }
-
-      // Nested raw block ({{{{ not followed by /) — treat as content
-      const contentStart = savePos();
-      advanceTo(idx + 4);
-      const text = input.substring(idx, idx + 4);
-      // This content includes the {{{{ — continue scanning
-      contents.push({
-        type: 'ContentStatement',
-        original: text,
-        value: text,
-        loc: locFrom(contentStart),
-      });
     }
 
     error('Unterminated raw block');
