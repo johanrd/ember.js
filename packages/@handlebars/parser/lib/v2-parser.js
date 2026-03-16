@@ -1069,12 +1069,14 @@ export function v2ParseWithoutProcessing(input, options) {
   function parseHash() {
     const startP = savePos();
     const pairs = [];
+    let endP;
     while (pos < len && isAtHash()) {
       pairs.push(parseHashPair());
+      endP = savePos(); // capture end BEFORE skipping whitespace
       skipWs();
     }
     if (pairs.length === 0) return undefined;
-    return { type: 'Hash', pairs, loc: locFrom(startP) };
+    return { type: 'Hash', pairs, loc: makeLoc(startP.line, startP.col, endP.line, endP.col) };
   }
 
   function parseHashPair() {
