@@ -837,21 +837,27 @@ export function v2ParseWithoutProcessing(input, options) {
   function parseSexprOrPath() {
     const startP = savePos(); // save pos BEFORE sub-expression
     const sexpr = parseSexpr();
+    // Peek for separator WITHOUT consuming whitespace — the caller
+    // owns trailing whitespace (affects loc of containing HashPair etc.)
+    const savedPos = pos, savedLine = line, savedCol = col;
     skipWs();
-    // Check if followed by separator (making it a path with sexpr head)
     if (cc() === CH_DOT || cc() === CH_SLASH) {
       return parsePath(false, sexpr, startP);
     }
+    // Restore — don't consume trailing whitespace
+    pos = savedPos; line = savedLine; col = savedCol;
     return sexpr;
   }
 
   function parseArrayLiteralOrPath() {
     const startP = savePos(); // save pos BEFORE array literal
     const arr = parseArrayLiteral();
+    const savedPos = pos, savedLine = line, savedCol = col;
     skipWs();
     if (cc() === CH_DOT || cc() === CH_SLASH) {
       return parsePath(false, arr, startP);
     }
+    pos = savedPos; line = savedLine; col = savedCol;
     return arr;
   }
 
