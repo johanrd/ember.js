@@ -360,14 +360,13 @@ export function v2ParseWithoutProcessing(input, options) {
         };
       }
 
-      // Check for escaped mustache
-      if (idx > 0 && input.charCodeAt(idx - 1) === CH_BACKSLASH) {
-        if (idx > 1 && input.charCodeAt(idx - 2) === CH_BACKSLASH) {
+      // Check for escaped mustache — only if the backslash is within our scan range
+      if (idx > pos && input.charCodeAt(idx - 1) === CH_BACKSLASH) {
+        if (idx > pos + 1 && input.charCodeAt(idx - 2) === CH_BACKSLASH) {
           // \\{{ — the \\ is a literal backslash, {{ is a real mustache
-          // Content up to one backslash before {{ (strip one backslash)
-          advanceTo(idx - 1);
-          result += input.substring(segStart, idx - 1);
-          // Now we're at the real {{ — stop
+          // Content includes everything up to \\{{ with one backslash stripped
+          result += input.substring(segStart, idx - 1); // strip one backslash
+          advanceTo(idx); // advance to the real {{ (not past it)
           if (result.length === 0) return null;
           return {
             type: 'ContentStatement',
@@ -376,17 +375,22 @@ export function v2ParseWithoutProcessing(input, options) {
             loc: locFrom(startP),
           };
         }
-        // \{{ — escaped mustache, becomes literal {{
+        // \{{ — escaped mustache, the {{ becomes literal content
+        // Strip the backslash, include the {{ as content, continue scanning
         advanceTo(idx - 1);
         result += input.substring(segStart, idx - 1); // content up to backslash (excluding it)
-        advanceTo(idx); // skip the backslash position
-
-        // Now scan to next {{ or \{{ or \\{{ or EOF (emu state)
-        let emuStart = pos;
-        const nextMu = findNextMustacheOrEnd(pos);
-        advanceTo(nextMu);
-        result += input.substring(emuStart, nextMu);
+        // Skip past the backslash and the {{ (they become literal content)
+        advanceTo(idx + 2); // past the \{{ → now past the literal {{
+        result += '{{'; // the escaped {{ becomes literal
         segStart = pos;
+
+        // Continue scanning from pos for next {{ (emu state behavior)
+        const nextMu = findNextMustacheOrEnd(pos);
+        if (nextMu > pos) {
+          advanceTo(nextMu);
+          result += input.substring(segStart, nextMu);
+          segStart = pos;
+        }
         continue;
       }
 
