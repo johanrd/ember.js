@@ -375,23 +375,39 @@ export function v2ParseWithoutProcessing(input, options) {
             loc: locFrom(startP),
           };
         }
-        // \{{ — escaped mustache, the {{ becomes literal content
-        // Strip the backslash, include the {{ as content, continue scanning
-        advanceTo(idx - 1);
-        result += input.substring(segStart, idx - 1); // content up to backslash (excluding it)
-        // Skip past the backslash and the {{ (they become literal content)
-        advanceTo(idx + 2); // past the \{{ → now past the literal {{
-        result += '{{'; // the escaped {{ becomes literal
-        segStart = pos;
+        // \{{ — escaped mustache. Jison handles this by:
+        // 1. Emitting content up to the \ (stripping it) as CONTENT
+        // 2. Entering emu state which scans to next {{/\{{/\\{{/EOF
+        // 3. Emitting that chunk as another CONTENT
+        //
+        // We match this by: emit what we have so far (up to the \, stripped),
+        // then advance past \{{ and let the emu scan produce the next content.
 
-        // Continue scanning from pos for next {{ (emu state behavior)
-        const nextMu = findNextMustacheOrEnd(pos);
-        if (nextMu > pos) {
-          advanceTo(nextMu);
-          result += input.substring(segStart, nextMu);
-          segStart = pos;
+        // First: emit content accumulated so far (before the backslash)
+        advanceTo(idx - 1);
+        result += input.substring(segStart, idx - 1);
+        if (result.length > 0) {
+          return {
+            type: 'ContentStatement',
+            original: result,
+            value: result,
+            loc: locFrom(startP),
+          };
         }
-        continue;
+
+        // If no content before the \, advance past the \{{ and scan emu content
+        advanceTo(idx + 2); // past \{{
+        const emuStartP = savePos();
+        const emuStart = pos;
+        const nextMu = findNextMustacheOrEnd(pos);
+        advanceTo(nextMu);
+        const emuContent = '{{' + input.substring(emuStart, nextMu);
+        return {
+          type: 'ContentStatement',
+          original: emuContent,
+          value: emuContent,
+          loc: makeLoc(startP.line, startP.col, line, col),
+        };
       }
 
       // Normal {{ — stop here
@@ -418,19 +434,16 @@ export function v2ParseWithoutProcessing(input, options) {
   }
 
   function findNextMustacheOrEnd(from) {
-    // Scan forward from `from` looking for {{ or \{{ or \\{{ or EOF
-    // This is the emu state behavior
-    let p = from;
-    while (p < len) {
-      const idx = input.indexOf('{{', p);
-      if (idx === -1) return len;
-      if (idx >= 2 && input.charCodeAt(idx - 1) === CH_BACKSLASH) {
-        // \{{ or \\{{ — stop here (before the backslash)
-        return idx;
-      }
-      return idx;
+    // Emu state: scan for next {{ (escaped or not) or EOF.
+    // Returns position to stop content at. The main scanContent loop
+    // will then handle escape detection on the next iteration.
+    const idx = input.indexOf('{{', from);
+    if (idx === -1) return len;
+    // If preceded by backslash, stop before the backslash
+    if (idx > from && input.charCodeAt(idx - 1) === CH_BACKSLASH) {
+      return idx - 1;
     }
-    return len;
+    return idx;
   }
 
   // === Mustache classification ===
