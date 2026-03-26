@@ -14,7 +14,7 @@ import {
   CheckString,
   CheckUndefined,
 } from '@glimmer/debug';
-import { buildUntouchableThis } from '@glimmer/debug-util';
+import { buildUntouchableThis, localAssert } from '@glimmer/debug-util';
 import { registerDestructor } from '@glimmer/destroyable';
 import { setInternalModifierManager } from '@glimmer/manager';
 import { valueForRef } from '@glimmer/reference';
@@ -57,29 +57,16 @@ export class OnModifierState {
   updateListener(): void {
     let { element, args, listener } = this;
 
-    let selector: string | undefined;
-    if (DEBUG) {
-      const el = this.element;
-      selector =
-        el.tagName.toLowerCase() +
-        (el.id ? `#${el.id}` : '') +
-        Array.from(el.classList)
-          .map((c) => `.${c}`)
-          .join('');
-    }
+    localAssert(
+      args.positional[0],
+      'You must pass a valid DOM event name as the first argument to the `on` modifier'
+    );
 
-    let arg0 = args.positional[0];
     let eventName = check(
-      arg0 ? valueForRef(arg0) : undefined,
+      valueForRef(args.positional[0]),
       CheckString,
       () => 'You must pass a valid DOM event name as the first argument to the `on` modifier'
     );
-
-    if (DEBUG && !eventName) {
-      throw new Error(
-        `You must pass a valid DOM event name as the first argument to the \`on\` modifier on ${selector}`
-      );
-    }
 
     let arg1 = args.positional[1];
     let userProvidedCallback = check(
@@ -92,17 +79,16 @@ export class OnModifierState {
       }
     ) as EventListener;
 
-    if (DEBUG && typeof userProvidedCallback !== 'function') {
-      throw new Error(
-        `You must pass a function as the second argument to the \`on\` modifier; you passed ${
-          userProvidedCallback === null ? 'null' : typeof userProvidedCallback
-        }. While rendering:\n\n${args.positional[1]?.debugLabel ?? '(unknown)'} on ${selector}`
-      );
-    }
+    localAssert(
+      typeof userProvidedCallback === 'function',
+      `You must pass a function as the second argument to the \`on\` modifier; you passed ${
+        userProvidedCallback === null ? 'null' : typeof userProvidedCallback
+      }. While rendering:\n\n${args.positional[1]?.debugLabel ?? `{unlabeled value}`}`
+    );
 
     if (DEBUG && args.positional.length !== 2) {
       throw new Error(
-        `You can only pass two positional arguments (event name and callback) to the \`on\` modifier, but you provided ${args.positional.length}. Consider using the \`fn\` helper to provide additional arguments to the \`on\` callback on ${selector}`
+        `You can only pass two positional arguments (event name and callback) to the \`on\` modifier, but you provided ${args.positional.length}. Consider using the \`fn\` helper to provide additional arguments to the \`on\` callback.`
       );
     }
 
@@ -138,7 +124,7 @@ export class OnModifierState {
         throw new Error(
           `You can only \`once\`, \`passive\` or \`capture\` named arguments to the \`on\` modifier, but you provided ${Object.keys(
             extra
-          ).join(', ')} on ${selector}`
+          ).join(', ')}.`
         );
       }
     } else {
