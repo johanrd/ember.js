@@ -1,6 +1,6 @@
 // @ts-nocheck
 /**
- * Hand-written recursive descent parser for Handlebars templates.
+ * Claude-iterated POC for a recursive descent parser for Handlebars templates.
  * Drop-in replacement for the Jison-generated parser.
  *
  * Key optimizations over Jison:
