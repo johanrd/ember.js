@@ -1822,11 +1822,11 @@ export function unifiedPreprocess(input: string, options: PreprocessOptions = {}
       while (pos < len) {
         const c = cc();
         if (
-          (c >= 65 && c <= 90) ||  // A-Z
+          (c >= 65 && c <= 90) || // A-Z
           (c >= 97 && c <= 122) || // a-z
-          (c >= 48 && c <= 57) ||  // 0-9
-          c === 95 ||              // _
-          c === 45                 // -
+          (c >= 48 && c <= 57) || // 0-9
+          c === 95 || // _
+          c === 45 // -
         ) {
           id += input[pos];
           col++;
@@ -1984,8 +1984,14 @@ export function unifiedPreprocess(input: string, options: PreprocessOptions = {}
       if (blockName.length === 0) {
         // '<:' with no block name — consume to '>' for better span
         const tagStart = ns - 1; // position of '<'
-        while (pos < len && cc() !== CH_GT) { col++; pos++; }
-        if (pos < len) { col++; pos++; } // consume '>'
+        while (pos < len && cc() !== CH_GT) {
+          col++;
+          pos++;
+        }
+        if (pos < len) {
+          col++;
+          pos++;
+        } // consume '>'
         throw generateSyntaxError(
           'Invalid named block named detected, you may have created a named block without a name, or you may have began your name with a number. Named blocks must have names that are at least one character long, and begin with a lower case letter',
           sp(tagStart, pos)
@@ -1996,8 +2002,14 @@ export function unifiedPreprocess(input: string, options: PreprocessOptions = {}
         // Starts with uppercase letter — scan open tag, find close tag, span both
         const tagStart = ns - 1;
         // Scan to end of open tag
-        while (pos < len && cc() !== CH_GT) { col++; pos++; }
-        if (pos < len) { col++; pos++; }
+        while (pos < len && cc() !== CH_GT) {
+          col++;
+          pos++;
+        }
+        if (pos < len) {
+          col++;
+          pos++;
+        }
         const openTagClosePos = pos;
         // Scan to end of close tag
         const closeTagStr = `</:${blockName}>`;
@@ -2080,7 +2092,10 @@ export function unifiedPreprocess(input: string, options: PreprocessOptions = {}
       }
 
       // as |x| block params — also trigger on 'as|' (no space) so parseElemBlockParams can throw
-      if (sw('as') && (isWhitespace(input.charCodeAt(pos + 2)) || input.charCodeAt(pos + 2) === CH_PIPE)) {
+      if (
+        sw('as') &&
+        (isWhitespace(input.charCodeAt(pos + 2)) || input.charCodeAt(pos + 2) === CH_PIPE)
+      ) {
         const bp = parseElemBlockParams();
         if (bp.length > 0) {
           elemBP = bp;
@@ -2101,13 +2116,23 @@ export function unifiedPreprocess(input: string, options: PreprocessOptions = {}
       // Bare '|...|' block params without 'as' keyword
       if (cc() === CH_PIPE) {
         const pipeStart = pos;
-        col++; pos++; // consume opening '|'
+        col++;
+        pos++; // consume opening '|'
         skipWs();
         // Scan to closing '|'
-        while (pos < len && cc() !== CH_PIPE && cc() !== CH_GT && !(cc() === CH_SLASH && cc(1) === CH_GT)) {
-          col++; pos++;
+        while (
+          pos < len &&
+          cc() !== CH_PIPE &&
+          cc() !== CH_GT &&
+          !(cc() === CH_SLASH && cc(1) === CH_GT)
+        ) {
+          col++;
+          pos++;
         }
-        if (cc() === CH_PIPE) { col++; pos++; } // consume closing '|'
+        if (cc() === CH_PIPE) {
+          col++;
+          pos++;
+        } // consume closing '|'
         throw generateSyntaxError(
           'Invalid block parameters syntax: block parameters must be preceded by the `as` keyword',
           sp(pipeStart, pos)
@@ -2216,9 +2241,15 @@ export function unifiedPreprocess(input: string, options: PreprocessOptions = {}
       skipWs();
       if (cc() !== CH_GT) {
         // Consume to find end of close tag for the error span (span = from '<' to just before '>')
-        while (pos < len && cc() !== CH_GT) { col++; pos++; }
+        while (pos < len && cc() !== CH_GT) {
+          col++;
+          pos++;
+        }
         const badEnd = pos;
-        if (pos < len) { col++; pos++; } // consume '>'
+        if (pos < len) {
+          col++;
+          pos++;
+        } // consume '>'
         throw generateSyntaxError(
           `Invalid end tag: closing tag must not have attributes`,
           sp(closeStart, badEnd)
