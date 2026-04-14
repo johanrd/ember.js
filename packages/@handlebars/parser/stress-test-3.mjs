@@ -50,12 +50,12 @@ function compare(tpl, label) {
 }
 
 // =====================================================================
-// PART 1: All templates in ~/fremby
+// PART 1: All templates in ~/real-world-project
 // =====================================================================
-console.log('=== PART 1: All templates in ~/fremby ===\n');
+console.log('=== PART 1: All templates in ~/real-world-project ===\n');
 
 const allFiles = execSync(
-  'find /Users/johanrd/fremby -name "*.hbs" -o -name "*.gts" -o -name "*.gjs" 2>/dev/null | grep -v node_modules | grep -v dist | grep -v tmp | grep -v .claude',
+  'find /Users/johanrd/real-world-project -name "*.hbs" -o -name "*.gts" -o -name "*.gjs" 2>/dev/null | grep -v node_modules | grep -v dist | grep -v tmp | grep -v .claude',
   { encoding: 'utf8' }
 ).trim().split('\n').filter(Boolean);
 
@@ -68,14 +68,14 @@ for (const f of allFiles) {
     const ext = f.split('.').pop();
     if (ext === 'hbs') {
       templateCount++;
-      compare(content, f.replace(/.*\/fremby\//, ''));
+      compare(content, f.replace(/.*\/real-world-project\//, ''));
     } else {
       // .gts/.gjs — extract <template>...</template>
       const regex = /<template>([\s\S]*?)<\/template>/g;
       let m;
       while ((m = regex.exec(content)) !== null) {
         templateCount++;
-        compare(m[1], f.replace(/.*\/fremby\//, '') + ':template');
+        compare(m[1], f.replace(/.*\/real-world-project\//, '') + ':template');
       }
     }
   } catch {}
