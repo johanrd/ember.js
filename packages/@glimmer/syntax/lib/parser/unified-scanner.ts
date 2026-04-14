@@ -13,7 +13,7 @@
 import type * as ASTv1 from '../v1/api';
 import type { PreprocessOptions } from './tokenizer-event-handlers';
 
-import { Source } from '../source/source';
+import * as srcApi from '../source/api';
 import { SourceSpan } from '../source/loc/span';
 import b from '../v1/parser-builders';
 import { voidMap } from '../generation/printer';
@@ -31,6 +31,7 @@ const CH_AMP = 38;
 const CH_SQUOTE = 39;
 const CH_LPAREN = 40;
 const CH_RPAREN = 41;
+const CH_COLON = 58;
 const CH_DASH = 45;
 const CH_DOT = 46;
 const CH_SLASH = 47;
@@ -49,6 +50,41 @@ const CH_LBRACE = 123;
 const CH_PIPE = 124;
 const CH_RBRACE = 125;
 const CH_TILDE = 126;
+
+// ── HTML entity decoding ───────────────────────────────────────────────────────
+
+function decodeHtmlEntity(name: string): string {
+  switch (name) {
+    case 'amp': return '&';
+    case 'lt': return '<';
+    case 'gt': return '>';
+    case 'quot': return '"';
+    case 'apos': return "'";
+    case 'nbsp': return '\u00A0';
+    case 'copy': return '©';
+    case 'reg': return '®';
+    case 'trade': return '™';
+    case 'mdash': return '—';
+    case 'ndash': return '–';
+    case 'hellip': return '…';
+    case 'laquo': return '«';
+    case 'raquo': return '»';
+    default: {
+      const c0 = name.charCodeAt(0);
+      if (c0 === 35 /* # */) {
+        const c1 = name.charCodeAt(1);
+        if (c1 === 120 || c1 === 88) { // x or X
+          const n = parseInt(name.slice(2), 16);
+          if (!isNaN(n)) return String.fromCharCode(n);
+        } else {
+          const n = parseInt(name.slice(1), 10);
+          if (!isNaN(n)) return String.fromCharCode(n);
+        }
+      }
+      return '&' + name + ';';
+    }
+  }
+}
 
 // ── Predicates ─────────────────────────────────────────────────────────────────
 
@@ -98,34 +134,156 @@ function idFromToken(t: string): string {
 
 function pathOriginal(p: ASTv1.PathExpression | ASTv1.SubExpression): string {
   if (p.type === 'PathExpression') return p.original as string;
-  // SubExpression has no meaningful name for close-block matching
   return '';
+}
+
+// ── Whitespace stripping helpers ───────────────────────────────────────────────
+
+function stripTrailingWS(chars: string): string {
+  let i = chars.length;
+  while (i > 0 && isWhitespace(chars.charCodeAt(i - 1))) i--;
+  return chars.slice(0, i);
+}
+
+function stripLeadingWS(chars: string): string {
+  let i = 0;
+  while (i < chars.length && isWhitespace(chars.charCodeAt(i))) i++;
+  return chars.slice(i);
+}
+
+// ── Apply tilde stripping (~ flags on mustaches and blocks) ────────────────────
+//
+// Iterates through body and applies strip.open / strip.close / openStrip / closeStrip
+// whitespace trimming on adjacent TextNode siblings.
+
+function applyTildeStripping(body: ASTv1.Statement[]): ASTv1.Statement[] {
+  for (let i = 0; i < body.length; i++) {
+    const node = body[i]!;
+
+    if (node.type === 'MustacheStatement') {
+      const m = node as ASTv1.MustacheStatement;
+      if (m.strip?.open) {
+        const prev = i > 0 ? body[i - 1] : null;
+        if (prev?.type === 'TextNode') (prev as ASTv1.TextNode).chars = stripTrailingWS((prev as ASTv1.TextNode).chars);
+      }
+      if (m.strip?.close) {
+        const next = i < body.length - 1 ? body[i + 1] : null;
+        if (next?.type === 'TextNode') (next as ASTv1.TextNode).chars = stripLeadingWS((next as ASTv1.TextNode).chars);
+      }
+    }
+
+    if (node.type === 'MustacheCommentStatement') {
+      const m = node as ASTv1.MustacheCommentStatement;
+      const strip = (m as any).__strip as { open: boolean; close: boolean } | undefined;
+      if (strip?.open) {
+        const prev = i > 0 ? body[i - 1] : null;
+        if (prev?.type === 'TextNode') (prev as ASTv1.TextNode).chars = stripTrailingWS((prev as ASTv1.TextNode).chars);
+      }
+      if (strip?.close) {
+        const next = i < body.length - 1 ? body[i + 1] : null;
+        if (next?.type === 'TextNode') (next as ASTv1.TextNode).chars = stripLeadingWS((next as ASTv1.TextNode).chars);
+      }
+    }
+
+    if (node.type === 'BlockStatement') {
+      const bs = node as ASTv1.BlockStatement;
+      // openStrip.open: strip trailing WS from text before this block
+      if (bs.openStrip.open) {
+        const prev = i > 0 ? body[i - 1] : null;
+        if (prev?.type === 'TextNode') (prev as ASTv1.TextNode).chars = stripTrailingWS((prev as ASTv1.TextNode).chars);
+      }
+      // openStrip.close: strip leading WS from first child of program
+      if (bs.openStrip.close) {
+        const first = bs.program.body[0];
+        if (first?.type === 'TextNode') (first as ASTv1.TextNode).chars = stripLeadingWS((first as ASTv1.TextNode).chars);
+      }
+      // inverseStrip.open: strip trailing WS from last child of program (before {{else}})
+      if (bs.inverseStrip.open) {
+        const prog = bs.program.body;
+        const last = prog[prog.length - 1];
+        if (last?.type === 'TextNode') (last as ASTv1.TextNode).chars = stripTrailingWS((last as ASTv1.TextNode).chars);
+      }
+      // inverseStrip.close: strip leading WS from first child of inverse (after {{else}})
+      if (bs.inverseStrip.close && bs.inverse) {
+        const first = bs.inverse.body[0];
+        if (first?.type === 'TextNode') (first as ASTv1.TextNode).chars = stripLeadingWS((first as ASTv1.TextNode).chars);
+      }
+      // closeStrip.open: strip trailing WS from last child of program/inverse
+      if (bs.closeStrip.open) {
+        const prog = bs.inverse ?? bs.program;
+        const last = prog.body[prog.body.length - 1];
+        if (last?.type === 'TextNode') (last as ASTv1.TextNode).chars = stripTrailingWS((last as ASTv1.TextNode).chars);
+      }
+      // closeStrip.close: strip leading WS from text after this block
+      if (bs.closeStrip.close) {
+        const next = i < body.length - 1 ? body[i + 1] : null;
+        if (next?.type === 'TextNode') (next as ASTv1.TextNode).chars = stripLeadingWS((next as ASTv1.TextNode).chars);
+      }
+    }
+  }
+
+  // Remove empty text nodes
+  const result = body.filter((n) => !(n.type === 'TextNode' && (n as ASTv1.TextNode).chars === ''));
+
+  // Recurse
+  for (const n of result) {
+    if (n.type === 'BlockStatement') {
+      const bs = n as ASTv1.BlockStatement;
+      bs.program.body = applyTildeStripping(bs.program.body);
+      if (bs.inverse) bs.inverse.body = applyTildeStripping(bs.inverse.body);
+    } else if (n.type === 'ElementNode') {
+      (n as ASTv1.ElementNode).children = applyTildeStripping((n as ASTv1.ElementNode).children);
+    }
+  }
+
+  return result;
 }
 
 // ── Standalone-line whitespace stripping ───────────────────────────────────────
 //
-// Mirrors Handlebars' WhitespaceControl post-pass:
+// Mirrors Handlebars' WhitespaceControl post-pass.
 // A BlockStatement or MustacheCommentStatement is "standalone" when the text
 // immediately before it (from the last \n to the node) contains only spaces/tabs,
 // AND the text immediately after it (up to and including the first \n) contains
 // only spaces/tabs.  If so, strip that surrounding whitespace and the leading/
 // trailing whitespace inside the block's program/inverse bodies.
+//
+// IMPORTANT: we also check that the char immediately after the opening tag's }}
+// is a newline (openTagEnd check). This prevents incorrectly marking
+// `{{#if foo}}Foo{{/if}}` as standalone when there's content on the same line.
 
 function isOnlySpacesAndTabs(s: string): boolean {
   for (let i = 0; i < s.length; i++) {
     const c = s.charCodeAt(i);
-    if (c !== 32 && c !== 9) return false; // not space or tab
+    if (c !== 32 && c !== 9) return false;
   }
   return true;
 }
 
-function applyStandaloneStripping(body: ASTv1.Statement[]): ASTv1.Statement[] {
+function applyStandaloneStripping(body: ASTv1.Statement[], input: string, source: srcApi.Source): ASTv1.Statement[] {
+  const len = input.length;
+
+  // Helper: update the loc of a TextNode after stripping chars from its front
+  function trimLocStart(t: ASTv1.TextNode, stripped: number): void {
+    if (stripped <= 0) return;
+    const s = t.loc.getStart().offset;
+    const e = t.loc.getEnd().offset;
+    if (s !== null && e !== null) t.loc = SourceSpan.forCharPositions(source, s + stripped, e);
+  }
+
+  // Helper: update the loc of a TextNode after stripping chars from its end
+  function trimLocEnd(t: ASTv1.TextNode, stripped: number): void {
+    if (stripped <= 0) return;
+    const s = t.loc.getStart().offset;
+    const e = t.loc.getEnd().offset;
+    if (s !== null && e !== null) t.loc = SourceSpan.forCharPositions(source, s, e - stripped);
+  }
+
   for (let i = 0; i < body.length; i++) {
     const node = body[i]!;
     if (node.type !== 'BlockStatement' && node.type !== 'MustacheCommentStatement') continue;
 
-    // Chained blocks ({{else if}}) are not standalone on their own; their surrounding
-    // whitespace is governed by the parent block's standalone status.
+    // Chained blocks ({{else if}}) are not standalone on their own.
     if ((node as any).__chained) continue;
 
     const prevNode = i > 0 ? body[i - 1]! : null;
@@ -137,28 +295,69 @@ function applyStandaloneStripping(body: ASTv1.Statement[]): ASTv1.Statement[] {
     if (prevNode !== null && prev === null) continue;
     if (nextNode !== null && next === null) continue;
 
+    // Get the openTagEnd position (char right after the opening }})
+    const openTagEnd = (node as any).__openTagEnd as number | undefined;
+
+    // Check that everything from the opening }} to the end of the line is whitespace.
+    // This prevents treating `{{#wat}} foo {{/wat}}` as standalone.
+    if (openTagEnd !== undefined) {
+      let afterOpenOk = true;
+      let p = openTagEnd;
+      while (p < len && input.charCodeAt(p) !== CH_NL && input.charCodeAt(p) !== CH_CR) {
+        if (!isWhitespace(input.charCodeAt(p))) { afterOpenOk = false; break; }
+        p++;
+      }
+      if (!afterOpenOk) continue;
+    }
+
     // prev OK: everything from the last \n (exclusive) to end must be spaces/tabs only
     const prevStr = prev ? prev.chars : '';
     const prevLastNL = prevStr.lastIndexOf('\n');
     const prevAfterNL = prevLastNL === -1 ? prevStr : prevStr.slice(prevLastNL + 1);
-    const prevOk = !prev || isOnlySpacesAndTabs(prevAfterNL);
+    let prevOk = !prev || isOnlySpacesAndTabs(prevAfterNL);
+
+    // If there's no newline in prevStr (or no prevStr at all), scan the source backward
+    // from before the prev text to verify there really is a newline or start-of-input there.
+    // This catches `<ul>{{#each}}` (no prev text node) and `foo {{#each}}` (prev with no newline).
+    if (prevOk && prevLastNL === -1) {
+      const blockStartOff = node.loc.getStart().offset;
+      if (blockStartOff !== null) {
+        const prevLen = prev ? prevStr.length : 0;
+        let p = blockStartOff - prevLen - 1;
+        while (p >= 0 && (input.charCodeAt(p) === CH_SPACE || input.charCodeAt(p) === CH_TAB)) p--;
+        if (p >= 0 && input.charCodeAt(p) !== CH_NL && input.charCodeAt(p) !== CH_CR) {
+          prevOk = false;
+        }
+      }
+    }
 
     // next OK: everything from start to first \n (exclusive) must be spaces/tabs only
     const nextStr = next ? next.chars : '';
     const nextFirstNL = nextStr.indexOf('\n');
     const nextBeforeNL = nextFirstNL === -1 ? nextStr : nextStr.slice(0, nextFirstNL);
-    const nextOk = !next || isOnlySpacesAndTabs(nextBeforeNL);
+    let nextOk = !next || isOnlySpacesAndTabs(nextBeforeNL);
+
+    // If the next text has no newline AND there's a non-text node right after it,
+    // that node is on the same line as this block's closing tag → not standalone.
+    if (nextOk && nextFirstNL === -1 && next !== null) {
+      const nodeAfterText = i + 2 < body.length ? body[i + 2] : null;
+      if (nodeAfterText !== null) nextOk = false;
+    }
 
     if (!prevOk || !nextOk) continue;
 
-    // Strip prev: drop everything after the last \n (the indentation of the helper line)
+    // Strip prev: drop everything after the last \n
     if (prev) {
+      const origLen = prevStr.length;
       prev.chars = prevLastNL === -1 ? '' : prevStr.slice(0, prevLastNL + 1);
+      trimLocEnd(prev, origLen - prev.chars.length);
     }
 
     // Strip next: drop everything up to and including the first \n
     if (next) {
+      const stripped = nextFirstNL === -1 ? nextStr.length : nextFirstNL + 1;
       next.chars = nextFirstNL === -1 ? '' : nextStr.slice(nextFirstNL + 1);
+      trimLocStart(next, stripped);
     }
 
     // Strip first/last children inside the block's program and inverse bodies
@@ -172,7 +371,9 @@ function applyStandaloneStripping(body: ASTv1.Statement[]): ASTv1.Statement[] {
         if (first && first.type === 'TextNode') {
           const t = first as ASTv1.TextNode;
           const nl = t.chars.indexOf('\n');
+          const stripped = nl === -1 ? t.chars.length : nl + 1;
           t.chars = nl === -1 ? '' : t.chars.slice(nl + 1);
+          trimLocStart(t, stripped);
         }
 
         // Strip trailing spaces/tabs from last child (for the close-tag line being standalone)
@@ -180,13 +381,13 @@ function applyStandaloneStripping(body: ASTv1.Statement[]): ASTv1.Statement[] {
         if (last && last.type === 'TextNode') {
           const t = last as ASTv1.TextNode;
           const nl = t.chars.lastIndexOf('\n');
+          const origLen = t.chars.length;
           t.chars = nl === -1 ? '' : t.chars.slice(0, nl + 1);
+          trimLocEnd(t, origLen - t.chars.length);
         }
       }
 
-      // For chained inverses ({{else if}}), also strip the first child of each chained
-      // block's program body — mirrors Handlebars' omitRight(firstInverse.body) for the
-      // {{else if}} line being standalone.
+      // For chained inverses ({{else if}}), also strip the first child of each chained block's program body.
       if (bs.inverse?.chained) {
         let inv: ASTv1.Block | null | undefined = bs.inverse;
         while (inv?.chained) {
@@ -196,7 +397,9 @@ function applyStandaloneStripping(body: ASTv1.Statement[]): ASTv1.Statement[] {
           if (chainedFirst?.type === 'TextNode') {
             const t = chainedFirst as ASTv1.TextNode;
             const nl = t.chars.indexOf('\n');
+            const stripped = nl === -1 ? t.chars.length : nl + 1;
             t.chars = nl === -1 ? '' : t.chars.slice(nl + 1);
+            trimLocStart(t, stripped);
           }
           inv = chainedBlock.inverse ?? null;
         }
@@ -211,11 +414,13 @@ function applyStandaloneStripping(body: ASTv1.Statement[]): ASTv1.Statement[] {
   for (const n of result) {
     if (n.type === 'BlockStatement') {
       const bs = n as ASTv1.BlockStatement;
-      bs.program.body = applyStandaloneStripping(bs.program.body);
-      if (bs.inverse) bs.inverse.body = applyStandaloneStripping(bs.inverse.body);
+      bs.program.body = applyStandaloneStripping(bs.program.body, input, source);
+      if (bs.inverse) bs.inverse.body = applyStandaloneStripping(bs.inverse.body, input, source);
     } else if (n.type === 'ElementNode') {
       (n as ASTv1.ElementNode).children = applyStandaloneStripping(
-        (n as ASTv1.ElementNode).children
+        (n as ASTv1.ElementNode).children,
+        input,
+        source
       );
     }
   }
@@ -226,7 +431,7 @@ function applyStandaloneStripping(body: ASTv1.Statement[]): ASTv1.Statement[] {
 // ── Main export ────────────────────────────────────────────────────────────────
 
 export function unifiedPreprocess(input: string, options: PreprocessOptions = {}): ASTv1.Template {
-  const source = new Source(input, options.meta?.moduleName);
+  const source = new srcApi.Source(input, options.meta?.moduleName);
   const len = input.length;
 
   let pos = 0, line = 1, col = 0;
@@ -343,10 +548,15 @@ export function unifiedPreprocess(input: string, options: PreprocessOptions = {}
       const pfx = separator === '.#' ? '#' : '';
       orig += (separator ?? '') + part;
       if (!esc && (part === '..' || part === '.' || part === 'this')) {
-        // depth tracking — Glimmer disallows ../ anyway
+        // depth tracking
       } else {
         tail.push(`${pfx}${part}`);
       }
+    }
+
+    // Detect ...attributes (illegal spread)
+    if (orig === '...attributes') {
+      throw generateSyntaxError('Illegal use of ...attributes', fullSp);
     }
 
     // Glimmer validations
@@ -391,6 +601,41 @@ export function unifiedPreprocess(input: string, options: PreprocessOptions = {}
     return buildPath(data, segs, s, pos);
   }
 
+  // ── Build a PathExpression from an HTML tag name string ───────────────────────
+  // Handles: Foo, Foo.bar.baz, this, this.foo.bar, @Foo, @Foo.bar.baz, :foo
+  function buildTagPath(tag: string, ns: number, ne: number): ASTv1.PathExpression {
+    const fullSpan = sp(ns, ne);
+
+    // Named block: :foo
+    if (tag.startsWith(':')) {
+      const head = b.var({ name: tag, loc: fullSpan });
+      return b.path({ head, tail: [], loc: fullSpan });
+    }
+
+    // @-argument: @Foo or @Foo.bar.baz
+    if (tag.startsWith('@')) {
+      const dotIdx = tag.indexOf('.');
+      const headStr = dotIdx === -1 ? tag : tag.slice(0, dotIdx);
+      const tailParts = dotIdx === -1 ? [] : tag.slice(dotIdx + 1).split('.');
+      const head = b.atName({ name: headStr, loc: sp(ns, ns + headStr.length) });
+      return b.path({ head, tail: tailParts, loc: fullSpan });
+    }
+
+    // this or this.foo.bar
+    if (tag === 'this' || tag.startsWith('this.')) {
+      const tailParts = tag === 'this' ? [] : tag.slice(5).split('.');
+      const head = b.this({ loc: sp(ns, ns + 4) });
+      return b.path({ head, tail: tailParts, loc: fullSpan });
+    }
+
+    // Regular: Foo or Foo.bar.baz
+    const dotIdx = tag.indexOf('.');
+    const headName = dotIdx === -1 ? tag : tag.slice(0, dotIdx);
+    const tailParts = dotIdx === -1 ? [] : tag.slice(dotIdx + 1).split('.');
+    const head = b.var({ name: headName, loc: sp(ns, ns + headName.length) });
+    return b.path({ head, tail: tailParts, loc: fullSpan });
+  }
+
   // ── Expressions ───────────────────────────────────────────────────────────────
   function parseExpr(): ASTv1.Expression {
     skipWs();
@@ -422,10 +667,38 @@ export function unifiedPreprocess(input: string, options: PreprocessOptions = {}
     return parsePath(false, s);
   }
 
+  function literalError(lit: ASTv1.Literal): never {
+    let rawValue: string;
+    let display: string;
+    if (lit.type === 'StringLiteral') {
+      rawValue = (lit as ASTv1.StringLiteral).value;
+      display = JSON.stringify(rawValue);
+    } else if (lit.type === 'BooleanLiteral') {
+      rawValue = String((lit as ASTv1.BooleanLiteral).value);
+      display = rawValue;
+    } else if (lit.type === 'NumberLiteral') {
+      rawValue = String((lit as ASTv1.NumberLiteral).value);
+      display = rawValue;
+    } else if (lit.type === 'UndefinedLiteral') {
+      rawValue = 'undefined'; display = 'undefined';
+    } else {
+      rawValue = 'null'; display = 'null';
+    }
+    throw generateSyntaxError(
+      `${lit.type} "${rawValue}" cannot be called as a sub-expression, replace (${display}) with ${display}`,
+      lit.loc
+    );
+  }
+
   function parseSexpr(): ASTv1.SubExpression {
     const s = pos; col++; pos++; // skip (
     skipWs();
-    const path = parseExpr() as ASTv1.PathExpression | ASTv1.SubExpression;
+    const head = parseExpr();
+    // Literals cannot be sub-expression heads
+    if (head.type !== 'PathExpression' && head.type !== 'SubExpression') {
+      literalError(head as ASTv1.Literal);
+    }
+    const path = head as ASTv1.PathExpression | ASTv1.SubExpression;
     const params: ASTv1.Expression[] = [];
     let hash: ASTv1.Hash | undefined;
     skipWs();
@@ -479,7 +752,10 @@ export function unifiedPreprocess(input: string, options: PreprocessOptions = {}
     advanceTo(pos + 2); return rs;
   }
 
-  function parseHbsBlockParams(): string[] | null {
+  // Returns array of {name, s, e} with absolute char positions
+  interface BlockParam { name: string; s: number; e: number; }
+
+  function parseHbsBlockParams(): BlockParam[] | null {
     skipWs();
     if (!sw('as')) return null;
     const afterAs = pos + 2;
@@ -488,22 +764,39 @@ export function unifiedPreprocess(input: string, options: PreprocessOptions = {}
     while (p < len && isWhitespace(input.charCodeAt(p))) p++;
     if (p >= len || input.charCodeAt(p) !== CH_PIPE) return null;
     advanceTo(p + 1);
-    const ids: string[] = [];
+    const params: BlockParam[] = [];
     skipWs();
     while (cc() !== CH_PIPE && pos < len) {
-      const id = scanId(); if (!id) err('Expected block param identifier'); ids.push(id!); skipWs();
+      const ps = pos;
+      const id = scanId();
+      if (!id) err('Expected block param identifier');
+      params.push({ name: id!, s: ps, e: pos });
+      skipWs();
     }
     if (cc() !== CH_PIPE) err("Expected '|'"); col++; pos++;
-    return ids;
+    return params;
   }
 
   // Parse path+params+hash inside a mustache, return guts
-  function parseMustacheGuts(leftStrip: boolean, wantBlockParams: boolean) {
+  // openPos: absolute char position of the opening {{ (for error reporting)
+  function parseMustacheGuts(leftStrip: boolean, wantBlockParams: boolean, openPos?: number) {
     skipWs();
+
+    // Detect ...attributes early (for proper span in errors)
+    if (cc() === CH_DOT && cc(1) === CH_DOT && cc(2) === CH_DOT) {
+      // Consume to end of mustache to get full span
+      let p = pos;
+      while (p < len && !(input.charCodeAt(p) === CH_RBRACE && input.charCodeAt(p + 1) === CH_RBRACE)) p++;
+      const endPos = p + 2;
+      advanceTo(endPos);
+      const errStart = openPos !== undefined ? openPos : pos - 2;
+      throw generateSyntaxError('Illegal use of ...attributes', sp(errStart, pos));
+    }
+
     const path = parseExpr() as ASTv1.PathExpression | ASTv1.SubExpression;
     const params: ASTv1.Expression[] = [];
     let hash: ASTv1.Hash | undefined;
-    let blockParams: string[] = [];
+    let blockParams: BlockParam[] = [];
 
     skipWs();
     while (pos < len && cc() !== CH_RBRACE && !(cc() === CH_TILDE && cc(1) === CH_RBRACE)) {
@@ -532,6 +825,7 @@ export function unifiedPreprocess(input: string, options: PreprocessOptions = {}
     value?: string;       // for comment
     unescaped?: boolean;  // for & or {{{
     isDecorator?: boolean;
+    commentStrip?: { open: boolean; close: boolean }; // for comments with tilde
   }
 
   function classifyOpen(): Open {
@@ -552,7 +846,7 @@ export function unifiedPreprocess(input: string, options: PreprocessOptions = {}
         if (cc() === CH_RBRACE && cc(1) === CH_RBRACE) {
           advanceTo(pos + 2); return { kind: 'inverse', s, leftStrip: ls, rightStrip: rs };
         }
-        // {{else X ...}} — inverseChain; pos is right after 'else '+ws
+        // {{else X ...}} — inverseChain
         if (pos !== afterElse) { restore(afterStrip); advanceTo(afterElse); }
         skipWs();
         return { kind: 'inverseChain', s, leftStrip: ls };
@@ -565,35 +859,64 @@ export function unifiedPreprocess(input: string, options: PreprocessOptions = {}
       case CH_BANG: {
         col++; pos++;
         const ab = pos;
-        const se = input.indexOf('}}', ab); if (se === -1) err('Unterminated comment');
-        let srs = false; if (se > 0 && input.charCodeAt(se - 1) === CH_TILDE) srs = true;
-        const sme = se + 2;
         const sdd = input.charCodeAt(ab) === CH_DASH && input.charCodeAt(ab + 1) === CH_DASH;
         if (sdd) {
-          let lme = -1, lrs = false, sf = ab + 2;
+          let sf = ab + 2;
           while (sf < len) {
             const di = input.indexOf('--', sf); if (di === -1) break;
             let ad = di + 2; let tr = false;
             if (ad < len && input.charCodeAt(ad) === CH_TILDE) { tr = true; ad++; }
-            if (ad + 1 < len && input.charCodeAt(ad) === CH_RBRACE && input.charCodeAt(ad + 1) === CH_RBRACE) { lme = ad + 2; lrs = tr; break; }
+            if (ad + 1 < len && input.charCodeAt(ad) === CH_RBRACE && input.charCodeAt(ad + 1) === CH_RBRACE) {
+              const lme = ad + 2; const lrs = tr;
+              const raw = input.substring(s, lme); advanceTo(lme);
+              const val = raw.replace(/^\{\{~?!-?-?/, '').replace(/-?-?~?\}\}$/, '');
+              return { kind: 'comment', s, leftStrip: ls, value: val, commentStrip: { open: ls, close: lrs } };
+            }
             sf = di + 1;
           }
-          if (lme > sme) {
-            const raw = input.substring(s, lme); advanceTo(lme);
-            const val = raw.replace(/^\{\{~?!-?-?/, '').replace(/-?-?~?\}\}$/, '');
-            return { kind: 'comment', s, leftStrip: ls, value: val };
-          }
         }
+        // Single-line comment or non-long-form
+        const se = input.indexOf('}}', ab); if (se === -1) err('Unterminated comment');
+        let srs = false; if (se > 0 && input.charCodeAt(se - 1) === CH_TILDE) srs = true;
+        const sme = se + 2;
         const raw = input.substring(s, sme); advanceTo(sme);
         const val = raw.replace(/^\{\{~?!-?-?/, '').replace(/-?-?~?\}\}$/, '');
-        return { kind: 'comment', s, leftStrip: ls, value: val };
+        return { kind: 'comment', s, leftStrip: ls, value: val, commentStrip: { open: ls, close: srs } };
       }
       case 35: /* # */ col++; pos++; // CH_HASH
-        if (cc() === CH_GT) { col++; pos++; err('Partial blocks not supported'); }
-        const isDecorator35 = cc() === 42; /* * */ if (isDecorator35) { col++; pos++; }
-        return { kind: 'block', s, leftStrip: ls, isDecorator: isDecorator35 };
+        if (cc() === CH_GT) {
+          // Partial block: {{#> name}}...{{/name}} - consume all and throw
+          col++; pos++; // skip >
+          const pbNameEnd = input.indexOf('}}', pos);
+          const pbName = pbNameEnd !== -1 ? input.substring(pos, pbNameEnd).trim() : '';
+          if (pbNameEnd !== -1) advanceTo(pbNameEnd + 2);
+          // Find and consume matching close block
+          const pbClose = `{{/${pbName}}}`;
+          const pbCloseIdx = pbName ? input.indexOf(pbClose, pos) : -1;
+          if (pbCloseIdx !== -1) advanceTo(pbCloseIdx + pbClose.length);
+          throw generateSyntaxError('Handlebars partial blocks are not supported', sp(s, pos));
+        }
+        const isDecorator35 = cc() === 42; /* * */
+        if (isDecorator35) {
+          col++; pos++;
+          // Decorator block: {{#* name}}...{{/name}} - consume all and throw
+          const dbNameEnd = input.indexOf('}}', pos);
+          const dbName = dbNameEnd !== -1 ? input.substring(pos, dbNameEnd).trim() : '';
+          if (dbNameEnd !== -1) advanceTo(dbNameEnd + 2);
+          const dbClose = `{{/${dbName}}}`;
+          const dbCloseIdx = dbName ? input.indexOf(dbClose, pos) : -1;
+          if (dbCloseIdx !== -1) advanceTo(dbCloseIdx + dbClose.length);
+          throw generateSyntaxError('Handlebars decorator blocks are not supported', sp(s, pos));
+        }
+        return { kind: 'block', s, leftStrip: ls };
       case CH_SLASH: col++; pos++; return { kind: 'close', s, leftStrip: ls };
-      case CH_GT: err('Partials not supported');
+      case CH_GT: {
+        // Partial: {{> name}} - consume and throw
+        col++; pos++;
+        const pEnd = input.indexOf('}}', pos);
+        if (pEnd !== -1) advanceTo(pEnd + 2);
+        throw generateSyntaxError('Handlebars partials are not supported', sp(s, pos));
+      }
       case CH_CARET: {
         col++; pos++; skipWs();
         let rs = false;
@@ -603,7 +926,13 @@ export function unifiedPreprocess(input: string, options: PreprocessOptions = {}
       }
       case CH_LBRACE: col++; pos++; return { kind: 'unescaped', s, leftStrip: ls };
       case CH_AMP: col++; pos++; return { kind: 'mustache', s, leftStrip: ls, unescaped: true };
-      case 42: /* * */ col++; pos++; return { kind: 'mustache', s, leftStrip: ls, isDecorator: true };
+      case 42: /* * */ {
+        col++; pos++;
+        // Decorator: {{* name}} - consume and throw
+        const dEnd = input.indexOf('}}', pos);
+        if (dEnd !== -1) advanceTo(dEnd + 2);
+        throw generateSyntaxError('Handlebars decorators are not supported', sp(s, pos));
+      }
       default: return { kind: 'mustache', s, leftStrip: ls };
     }
   }
@@ -612,6 +941,7 @@ export function unifiedPreprocess(input: string, options: PreprocessOptions = {}
   interface TemplateFrame { kind: 'template'; body: ASTv1.Statement[]; }
   interface ElementFrame {
     kind: 'element'; tag: string;
+    ns: number;       // char pos of start of tag name
     ltPos: number;    // char pos of '<'
     openTagEnd: number; // char pos just after '>'
     attrs: ASTv1.AttrNode[];
@@ -619,20 +949,26 @@ export function unifiedPreprocess(input: string, options: PreprocessOptions = {}
     params: ASTv1.VarHead[];
     comments: ASTv1.MustacheCommentStatement[];
     children: ASTv1.Statement[];
+    inSVG: boolean; // whether this element is inside an SVG context
   }
   interface BlockFrame {
     kind: 'block';
     openStart: number; // char pos of '{{'
+    openTagEnd: number; // char pos right after '}}' of opening tag
     path: ASTv1.PathExpression | ASTv1.SubExpression;
     params: ASTv1.Expression[];
     hash: ASTv1.Hash;
-    blockParams: string[];
+    blockParams: BlockParam[];
     openStrip: ASTv1.StripFlags;
     defaultBody: ASTv1.Statement[];
     elseBody: ASTv1.Statement[] | null;
     inverseStrip: ASTv1.StripFlags;
     inElse: boolean;
-    isChained: boolean; // true = this block is inside an {{else if}} chain
+    isChained: boolean;
+    // pos right after the {{else}}/{{else if}} closing }}: start of inverse body
+    inverseStart: number;
+    // char pos of the start of {{else}}/{{else if}} tag: end of default program body
+    programEnd: number | undefined;
   }
   type Frame = TemplateFrame | ElementFrame | BlockFrame;
 
@@ -648,14 +984,35 @@ export function unifiedPreprocess(input: string, options: PreprocessOptions = {}
 
   function append(node: ASTv1.Statement): void { currentBody().push(node); }
 
+  // Check if we're currently inside an SVG element (for raw text mode detection)
+  function isInSVGContext(): boolean {
+    for (let i = stack.length - 1; i >= 0; i--) {
+      const f = stack[i]!;
+      if (f.kind === 'element') {
+        const ef = f as ElementFrame;
+        const tagLower = ef.tag.toLowerCase();
+        if (tagLower === 'svg') return true;
+        // foreignObject and desc re-enable HTML parsing
+        if (tagLower === 'foreignobject' || tagLower === 'desc') return false;
+      }
+    }
+    return false;
+  }
+
   // ── HBS node parsing ──────────────────────────────────────────────────────────
   function parseHbsNode(): void {
     const open = classifyOpen();
 
     switch (open.kind) {
-      case 'comment':
-        append(b.mustacheComment({ value: open.value ?? '', loc: sp(open.s, pos) }));
+      case 'comment': {
+        const node = b.mustacheComment({ value: open.value ?? '', loc: sp(open.s, pos) });
+        // Store strip flags for tilde stripping post-pass
+        if (open.commentStrip) {
+          Object.defineProperty(node, '__strip', { value: open.commentStrip, enumerable: false, writable: true, configurable: true });
+        }
+        append(node);
         return;
+      }
 
       case 'mustache':
       case 'unescaped': {
@@ -676,7 +1033,7 @@ export function unifiedPreprocess(input: string, options: PreprocessOptions = {}
           if (!hash) hash = b.hash({ pairs: [], loc: sp(pos, pos) });
           strip = { open: open.leftStrip, close: rs };
         } else {
-          const guts = parseMustacheGuts(open.leftStrip, false);
+          const guts = parseMustacheGuts(open.leftStrip, false, open.s);
           path = guts.path; params = guts.params; hash = guts.hash; strip = guts.strip;
         }
         append(b.mustache({ path: path as any, params, hash, trusting, loc: sp(open.s, pos), strip }));
@@ -685,15 +1042,17 @@ export function unifiedPreprocess(input: string, options: PreprocessOptions = {}
 
       case 'block':
       case 'openInverse': {
-        const guts = parseMustacheGuts(open.leftStrip, true);
+        const guts = parseMustacheGuts(open.leftStrip, true, open.s);
         const inverted = open.kind === 'openInverse';
+        const openTagEnd = pos; // position right after }}
         stack.push({
-          kind: 'block', openStart: open.s,
+          kind: 'block', openStart: open.s, openTagEnd,
           path: guts.path, params: guts.params, hash: guts.hash,
           blockParams: guts.blockParams, openStrip: guts.strip,
           defaultBody: [], elseBody: inverted ? [] : null,
           inverseStrip: { open: false, close: false },
           inElse: inverted, isChained: false,
+          inverseStart: openTagEnd, programEnd: undefined,
         });
         return;
       }
@@ -703,6 +1062,8 @@ export function unifiedPreprocess(input: string, options: PreprocessOptions = {}
         if (!bf || bf.kind !== 'block') err('Unexpected {{else}}');
         bf.inElse = true; bf.elseBody = [];
         bf.inverseStrip = { open: open.leftStrip, close: open.rightStrip ?? false };
+        bf.programEnd = open.s;  // start of {{else}} = end of default program body
+        bf.inverseStart = pos;   // right after {{else}}'s }}
         return;
       }
 
@@ -711,27 +1072,28 @@ export function unifiedPreprocess(input: string, options: PreprocessOptions = {}
         if (!bf || bf.kind !== 'block') err('Unexpected {{else ...}}');
         bf.inElse = true; bf.elseBody = [];
         bf.inverseStrip = { open: open.leftStrip, close: false };
-        // Parse the chained block opener (e.g. 'if cond}}')
-        const guts = parseMustacheGuts(open.leftStrip, true);
+        bf.programEnd = open.s;  // start of {{else if}} = end of outer program body
+        const guts = parseMustacheGuts(open.leftStrip, true, open.s);
+        const openTagEnd = pos;
+        bf.inverseStart = openTagEnd; // right after {{else if}}'s }}
         stack.push({
-          kind: 'block', openStart: open.s,
+          kind: 'block', openStart: open.s, openTagEnd,
           path: guts.path, params: guts.params, hash: guts.hash,
           blockParams: guts.blockParams, openStrip: guts.strip,
           defaultBody: [], elseBody: null,
           inverseStrip: { open: false, close: false },
           inElse: false, isChained: true,
+          inverseStart: openTagEnd, programEnd: undefined,
         });
         return;
       }
 
       case 'close': {
-        // Parse close path + }}
         skipWs();
         const closePath = parseExpr();
         const closeRS = consumeClose();
         const closeName = pathOriginal(closePath as any);
 
-        // Close all chained frames + the first non-chained frame
         let closeWasChained = true;
         while (closeWasChained && stack.length > 1) {
           const bf = stack[stack.length - 1] as BlockFrame;
@@ -745,36 +1107,58 @@ export function unifiedPreprocess(input: string, options: PreprocessOptions = {}
           closeWasChained = bf.isChained;
           stack.pop();
 
-          // Build block params as VarHeads (approx location)
-          const bpVars: ASTv1.VarHead[] = bf.blockParams.map((name) =>
-            b.var({ name, loc: sp(bf.openStart, bf.openStart + name.length) })
+          // Build block params as VarHeads with correct source locations
+          const bpVars: ASTv1.VarHead[] = bf.blockParams.map((bp) =>
+            b.var({ name: bp.name, loc: sp(bp.s, bp.e) })
           );
 
           const closeStrip: ASTv1.StripFlags = { open: open.leftStrip, close: closeRS };
           let defaultBlock: ASTv1.Block, inverseBlock: ASTv1.Block | null = null;
 
+          // program.loc: starts at openTagEnd (right after }} of opening tag),
+          // ends at bf.programEnd (start of {{else}}/{{else if}}) or open.s (start of {{/}}) if no else.
+          const programStart = bf.openTagEnd;
+          const programEnd = bf.programEnd ?? open.s;
+
+          // Block node loc: chained blocks end at open.s (start of {{/}}), regular at pos (after {{/}})
+          const blockLoc = bf.isChained ? sp(bf.openStart, open.s) : sp(bf.openStart, pos);
+
           if ((bf as any)._inverted) {
-            // openInverse: swap default/else
-            defaultBlock = b.blockItself({ body: bf.elseBody ?? [], params: bpVars, chained: false, loc: sp(bf.openStart, pos) });
-            inverseBlock = b.blockItself({ body: bf.defaultBody, params: [], chained: false, loc: sp(bf.openStart, pos) });
+            defaultBlock = b.blockItself({ body: bf.elseBody ?? [], params: bpVars, chained: false, loc: sp(programStart, programEnd) });
+            inverseBlock = b.blockItself({ body: bf.defaultBody, params: [], chained: false, loc: sp(bf.openStart, open.s) });
           } else {
-            defaultBlock = b.blockItself({ body: bf.defaultBody, params: bpVars, chained: false, loc: sp(bf.openStart, pos) });
+            defaultBlock = b.blockItself({ body: bf.defaultBody, params: bpVars, chained: false, loc: sp(programStart, programEnd) });
             if (bf.elseBody !== null) {
               const chained = bf.elseBody.length === 1 && bf.elseBody[0]?.type === 'BlockStatement' && (bf.elseBody[0] as any).__chained;
-              inverseBlock = b.blockItself({ body: bf.elseBody, params: [], chained, loc: sp(bf.openStart, pos) });
+              let inverseLoc: ReturnType<typeof sp>;
+              if (chained && bf.elseBody.length > 0) {
+                // For chained inverse, end at the inner chained block's program end
+                // (= start of the next {{else}} inside the chain)
+                const innerBlock = bf.elseBody[0] as ASTv1.BlockStatement;
+                const innerProgramEndOffset = innerBlock.program.loc.getEnd().offset;
+                inverseLoc = innerProgramEndOffset !== null
+                  ? sp(bf.inverseStart, innerProgramEndOffset)
+                  : sp(bf.inverseStart, open.s);
+              } else {
+                // Non-chained: inverse ends at start of {{/}}
+                inverseLoc = sp(bf.inverseStart, open.s);
+              }
+              inverseBlock = b.blockItself({ body: bf.elseBody, params: [], chained, loc: inverseLoc });
             }
           }
 
           const blockNode = b.block({
             path: bf.path, params: bf.params, hash: bf.hash,
             defaultBlock, elseBlock: inverseBlock,
-            loc: sp(bf.openStart, pos),
+            loc: blockLoc,
             openStrip: bf.openStrip,
             inverseStrip: bf.inverseStrip,
             closeStrip,
           });
-          // Mark chained blocks for parent's chained detection (non-enumerable to avoid
-          // appearing in AST serialization / node-shape comparisons)
+
+          // Store openTagEnd for standalone stripping detection
+          Object.defineProperty(blockNode, '__openTagEnd', { value: bf.openTagEnd, enumerable: false, writable: true, configurable: true });
+
           if (bf.isChained) {
             Object.defineProperty(blockNode, '__chained', { value: true, enumerable: false, writable: true, configurable: true });
           }
@@ -797,7 +1181,8 @@ export function unifiedPreprocess(input: string, options: PreprocessOptions = {}
   }
 
   // ── Attribute value after '=' ─────────────────────────────────────────────────
-  function parseAttrValue(): ASTv1.AttrNode['value'] {
+  // attrStart: absolute char position of the start of the attr name (for error spans)
+  function parseAttrValue(attrStart: number): ASTv1.AttrNode['value'] {
     const q = cc();
 
     if (q === CH_DQUOTE || q === CH_SQUOTE) {
@@ -813,10 +1198,28 @@ export function unifiedPreprocess(input: string, options: PreprocessOptions = {}
         if (sw('{{')) {
           flushText();
           const mo = classifyOpen();
+          if (mo.kind === 'comment') {
+            const stateName = q === CH_DQUOTE ? 'attributeValueDoubleQuoted' : 'attributeValueSingleQuoted';
+            throw generateSyntaxError(`Using a Handlebars comment when in the \`${stateName}\` state is not supported`, sp(mo.s, pos));
+          }
           if (mo.kind !== 'mustache' && mo.kind !== 'unescaped') err('Expected mustache in attribute value');
-          const guts = parseMustacheGuts(mo.leftStrip, false);
+          const guts = parseMustacheGuts(mo.leftStrip, false, mo.s);
           parts.push(b.mustache({ path: guts.path, params: guts.params, hash: guts.hash, trusting: mo.kind === 'unescaped' || !!mo.unescaped, loc: sp(mo.s, pos), strip: guts.strip }));
           ts = pos;
+        } else if (cc() === CH_AMP) {
+          // Try to decode HTML entity: &name; or &#NNN; or &#xHHH;
+          col++; pos++;
+          let entity = '';
+          while (pos < len && cc() !== 59 /* ; */ && !isWhitespace(cc()) && entity.length < 20) {
+            entity += input[pos]; col++; pos++;
+          }
+          if (pos < len && cc() === 59 /* ; */) {
+            col++; pos++;
+            tbuf += decodeHtmlEntity(entity);
+          } else {
+            // Not a valid entity — treat as literal text
+            tbuf += '&' + entity;
+          }
         } else {
           tbuf += input[pos];
           if (cc() === CH_NL) { line++; col = 0; pos++; } else { col++; pos++; }
@@ -826,29 +1229,68 @@ export function unifiedPreprocess(input: string, options: PreprocessOptions = {}
       if (cc() !== q) err('Unterminated attribute value');
       col++; pos++; // close quote
 
-      if (parts.length === 0) return b.text({ chars: '', loc: sp(oq + 1, pos - 1) });
-      if (parts.length === 1) return parts[0] as ASTv1.TextNode | ASTv1.MustacheStatement;
-      return b.concat({ parts: parts as any, loc: sp(oq + 1, pos - 1) });
+      if (parts.length === 0) return b.text({ chars: '', loc: sp(oq, pos) });
+      // Always wrap in ConcatStatement when any part is dynamic — matches original tokenizer behavior
+      const isDynamic = parts.some((p) => p.type === 'MustacheStatement');
+      if (!isDynamic && parts.length === 1) {
+        const t = parts[0] as ASTv1.TextNode;
+        t.loc = sp(oq, pos);
+        return t;
+      }
+      return b.concat({ parts: parts as any, loc: sp(oq, pos) });
     }
 
     if (sw('{{')) {
-      // Unquoted mustache: src={{url}}
+      // Check for comment in beforeAttributeValue state
+      const savedPos = pos;
       const mo = classifyOpen();
+      if (mo.kind === 'comment') {
+        throw generateSyntaxError(`Using a Handlebars comment when in the \`beforeAttributeValue\` state is not supported`, sp(mo.s, pos));
+      }
       if (mo.kind !== 'mustache' && mo.kind !== 'unescaped') err('Expected mustache as attribute value');
-      const guts = parseMustacheGuts(mo.leftStrip, false);
-      return b.mustache({ path: guts.path, params: guts.params, hash: guts.hash, trusting: mo.kind === 'unescaped' || !!mo.unescaped, loc: sp(mo.s, pos), strip: guts.strip });
+      const guts = parseMustacheGuts(mo.leftStrip, false, mo.s);
+      const mustacheEnd = pos;
+      // Check for awkward follow-up: mustache followed by non-WS non-> content
+      if (pos < len && !isWhitespace(cc()) && cc() !== CH_GT && !(cc() === CH_SLASH && cc(1) === CH_GT)) {
+        // Scan to get the full attr span (from attrStart to wherever this bad thing ends)
+        const badStart = attrStart;
+        // Scan until whitespace or >
+        while (pos < len && !isWhitespace(cc()) && cc() !== CH_GT && !(cc() === CH_SLASH && cc(1) === CH_GT)) {
+          col++; pos++;
+        }
+        throw generateSyntaxError(
+          `An unquoted attribute value must be a string or a mustache, preceded by whitespace or a '=' character, and followed by whitespace, a '>' character, or '/>'`,
+          sp(badStart, pos)
+        );
+      }
+      return b.mustache({ path: guts.path, params: guts.params, hash: guts.hash, trusting: mo.kind === 'unescaped' || !!mo.unescaped, loc: sp(mo.s, mustacheEnd), strip: guts.strip });
     }
 
-    // Unquoted literal
+    // Unquoted literal — check for text followed by mustache (awkward)
     const vs = pos;
     while (pos < len && !isWhitespace(cc()) && cc() !== CH_GT && !(cc() === CH_SLASH && cc(1) === CH_GT) && !sw('{{')) {
       col++; pos++;
+    }
+    const hasText = pos > vs;
+    if (hasText && sw('{{')) {
+      // text followed by mustache — scan past mustache and check
+      const textEnd = pos;
+      classifyOpen(); // consume {{...}}
+      parseMustacheGuts(false, false, textEnd);
+      // Scan any trailing text
+      while (pos < len && !isWhitespace(cc()) && cc() !== CH_GT && !(cc() === CH_SLASH && cc(1) === CH_GT)) {
+        col++; pos++;
+      }
+      throw generateSyntaxError(
+        `An unquoted attribute value must be a string or a mustache, preceded by whitespace or a '=' character, and followed by whitespace, a '>' character, or '/>'`,
+        sp(attrStart, pos)
+      );
     }
     return b.text({ chars: input.substring(vs, pos), loc: sp(vs, pos) });
   }
 
   // ── Element block params (as |x y|) ──────────────────────────────────────────
-  function parseElemBlockParams(): string[] {
+  function parseElemBlockParams(): BlockParam[] {
     skipWs();
     if (!sw('as')) return [];
     const aa = pos + 2;
@@ -856,16 +1298,33 @@ export function unifiedPreprocess(input: string, options: PreprocessOptions = {}
     let p = aa; while (p < len && isWhitespace(input.charCodeAt(p))) p++;
     if (p >= len || input.charCodeAt(p) !== CH_PIPE) return [];
     advanceTo(p + 1);
-    const ids: string[] = []; skipWs();
-    while (cc() !== CH_PIPE && pos < len) { const id = scanId(); if (!id) err('Expected block param'); ids.push(id!); skipWs(); }
+    const params: BlockParam[] = []; skipWs();
+    while (cc() !== CH_PIPE && pos < len) {
+      const ps = pos;
+      const id = scanId();
+      if (!id) err('Expected block param');
+      params.push({ name: id!, s: ps, e: pos });
+      skipWs();
+    }
     if (cc() !== CH_PIPE) err("Expected '|'"); col++; pos++;
-    return ids;
+    return params;
   }
 
   // ── Start tag parser (after '<' consumed) ────────────────────────────────────
-  function parseStartTag(ltPos: number): { tag: string; openTagEnd: number; attrs: ASTv1.AttrNode[]; modifiers: ASTv1.ElementModifierStatement[]; params: ASTv1.VarHead[]; selfClosing: boolean } {
-    // Scan tag name
+  interface StartTagInfo {
+    tag: string; ns: number; ne: number; openTagEnd: number;
+    attrs: ASTv1.AttrNode[]; modifiers: ASTv1.ElementModifierStatement[];
+    params: BlockParam[]; selfClosing: boolean;
+  }
+
+  function parseStartTag(ltPos: number): StartTagInfo {
+    // Scan tag name (supports @, :, a-z, A-Z, digits, -, _, ., :)
     const ns = pos;
+    // Handle @ prefix
+    if (cc() === CH_AT) { col++; pos++; }
+    // Handle : prefix (named blocks)
+    else if (cc() === CH_COLON) { col++; pos++; }
+    // Scan rest of tag name
     while (pos < len) {
       const c = cc();
       if ((c >= 65 && c <= 90) || (c >= 97 && c <= 122) || (c >= 48 && c <= 57) || c === 45 || c === 95 || c === 46 || c === 58) { col++; pos++; }
@@ -873,23 +1332,54 @@ export function unifiedPreprocess(input: string, options: PreprocessOptions = {}
     }
     if (pos === ns) err('Expected tag name');
     const tag = input.substring(ns, pos);
+    const ne = pos;
+
+    // Check for mustache immediately after tag name (no whitespace) — error
+    if (sw('{{')) {
+      const ms = pos;
+      const me = input.indexOf('}}', pos);
+      const meEnd = me !== -1 ? me + 2 : pos + 2;
+      throw generateSyntaxError('Cannot use mustaches in an elements tagname', sp(ms, meEnd));
+    }
 
     const attrs: ASTv1.AttrNode[] = [];
     const modifiers: ASTv1.ElementModifierStatement[] = [];
-    let elemBP: string[] = [];
+    let elemBP: BlockParam[] = [];
+    const comments: ASTv1.MustacheCommentStatement[] = [];
 
     loop: while (pos < len) {
+      const posBeforeWs = pos;
       skipWs();
+      const hadWs = pos > posBeforeWs;
 
       if (cc() === CH_GT) { col++; pos++; break loop; }
-      if (cc() === CH_SLASH && cc(1) === CH_GT) { advanceTo(pos + 2); return { tag, openTagEnd: pos, attrs, modifiers, params: elemBP.map((n) => b.var({ name: n, loc: sp(ltPos, pos) })), selfClosing: true }; }
+      if (cc() === CH_SLASH && cc(1) === CH_GT) {
+        advanceTo(pos + 2);
+        return {
+          tag, ns, ne, openTagEnd: pos,
+          attrs, modifiers,
+          params: elemBP,
+          selfClosing: true,
+          comments,
+        } as StartTagInfo & { comments: ASTv1.MustacheCommentStatement[] };
+      }
 
       // {{modifier}} or {{!comment}}
       if (sw('{{')) {
         const mo = classifyOpen();
-        if (mo.kind === 'comment') { /* just a comment, discard */ continue loop; }
+        if (mo.kind === 'comment') {
+          if (hadWs) {
+            // beforeAttributeName state: store in comments
+            const node = b.mustacheComment({ value: mo.value ?? '', loc: sp(mo.s, pos) });
+            comments.push(node);
+          } else {
+            // attributeName state: throw error
+            throw generateSyntaxError(`Using a Handlebars comment when in the \`attributeName\` state is not supported`, sp(mo.s, pos));
+          }
+          continue loop;
+        }
         if (mo.kind !== 'mustache') err('Only {{modifiers}} allowed in element tags');
-        const guts = parseMustacheGuts(mo.leftStrip, false);
+        const guts = parseMustacheGuts(mo.leftStrip, false, mo.s);
         modifiers.push(b.elementModifier({ path: guts.path, params: guts.params, hash: guts.hash, loc: sp(mo.s, pos) }));
         continue loop;
       }
@@ -898,6 +1388,14 @@ export function unifiedPreprocess(input: string, options: PreprocessOptions = {}
       if (sw('as') && isWhitespace(input.charCodeAt(pos + 2))) {
         const bp = parseElemBlockParams();
         if (bp.length > 0) { elemBP = bp; continue loop; }
+      }
+
+      // Check for disallowed attribute name starters
+      if (cc() === CH_DQUOTE || cc() === CH_SQUOTE) {
+        throw generateSyntaxError(`" is not a valid character within attribute names`, sp(pos, pos));
+      }
+      if (cc() === CH_EQ) {
+        throw generateSyntaxError(`attribute name cannot start with equals sign`, sp(pos, pos));
       }
 
       // Attribute name
@@ -915,17 +1413,29 @@ export function unifiedPreprocess(input: string, options: PreprocessOptions = {}
       }
       if (attrName === '' && pos === nameBodyStart) err(`Expected attribute name or '>' in <${tag}>`);
 
-      skipWs();
-      if (cc() === CH_EQ) {
-        col++; pos++;
-        const value = parseAttrValue();
+      // Peek ahead for '=' without consuming whitespace.
+      // If we called skipWs() here and then didn't find '=', the next loop iteration
+      // would have hadWs=false, causing the {{! comment }} handler to throw the wrong error.
+      let eqScanPos = pos;
+      while (eqScanPos < len && isWhitespace(input.charCodeAt(eqScanPos))) eqScanPos++;
+      if (eqScanPos < len && input.charCodeAt(eqScanPos) === CH_EQ) {
+        advanceTo(eqScanPos + 1); // advance past optional whitespace + '='
+        const value = parseAttrValue(ans);
         attrs.push(b.attr({ name: attrName, value, loc: sp(ans, pos) }));
       } else {
-        attrs.push(b.attr({ name: attrName, value: b.text({ chars: '', loc: sp(pos, pos) }), loc: sp(ans, pos) }));
+        // Valueless attribute — loc includes trailing whitespace up to the next attr start,
+        // matching the original tokenizer. eqScanPos points to the first non-whitespace after the name.
+        attrs.push(b.attr({ name: attrName, value: b.text({ chars: '', loc: sp(pos, pos) }), loc: sp(ans, eqScanPos) }));
       }
     }
 
-    return { tag, openTagEnd: pos, attrs, modifiers, params: elemBP.map((n) => b.var({ name: n, loc: sp(ltPos, pos) })), selfClosing: false };
+    return {
+      tag, ns, ne, openTagEnd: pos,
+      attrs, modifiers,
+      params: elemBP,
+      selfClosing: false,
+      comments,
+    } as any;
   }
 
   // ── HTML node dispatch ────────────────────────────────────────────────────────
@@ -966,7 +1476,7 @@ export function unifiedPreprocess(input: string, options: PreprocessOptions = {}
         );
       }
 
-      // Pop everything above the element frame (should only be block frames — error in valid template)
+      // Pop everything above the element frame
       while (stack.length - 1 > fi) stack.pop();
       stack.pop();
 
@@ -974,23 +1484,79 @@ export function unifiedPreprocess(input: string, options: PreprocessOptions = {}
       const closeTagSpan = sp(closeStart, closeEnd);
       const elemSpan = sp(ef.ltPos, closeEnd);
       const openTagSpan = sp(ef.ltPos, ef.openTagEnd);
-      const tagPath = b.path({ head: b.var({ name: ef.tag, loc: openTagSpan }), tail: [], loc: openTagSpan });
+      const tagPath = buildTagPath(ef.tag, ef.ns, ef.ns + ef.tag.length);
       append(b.element({ path: tagPath, selfClosing: false, attributes: ef.attrs, modifiers: ef.modifiers, params: ef.params, comments: ef.comments, children: ef.children, openTag: openTagSpan, closeTag: closeTagSpan, loc: elemSpan }));
       return;
     }
 
-    // Start tag <tagname...>
-    const fc = cc(1);
-    if ((fc >= 65 && fc <= 90) || (fc >= 97 && fc <= 122)) {
+    // Check for mustache in tagName space: <{{...}}>
+    if (cc(1) === CH_LBRACE && cc(2) === CH_LBRACE) {
       col++; pos++; // skip <
-      const info = parseStartTag(ltPos);
-      const selfClosing = info.selfClosing || voidMap.has(info.tag.toLowerCase());
+      const ms = pos;
+      const me = input.indexOf('}}', pos);
+      const meEnd = me !== -1 ? me + 2 : pos + 2;
+      throw generateSyntaxError('Cannot use mustaches in an elements tagname', sp(ms, meEnd));
+    }
+
+    // Start tag <tagname...>  — allow @, :, a-z, A-Z
+    const fc = cc(1);
+    if ((fc >= 65 && fc <= 90) || (fc >= 97 && fc <= 122) || fc === CH_AT || fc === CH_COLON) {
+      col++; pos++; // skip <
+      const info = parseStartTag(ltPos) as any;
+
+      // Only lowercase-starting tags are void elements
+      const firstCharCode = info.tag.charCodeAt(0);
+      const isLowercaseStart = firstCharCode >= 97 && firstCharCode <= 122;
+      const isVoid = !info.selfClosing && isLowercaseStart && voidMap.has(info.tag.toLowerCase());
       const openTagSpan = sp(ltPos, info.openTagEnd);
-      if (selfClosing) {
-        const tagPath = b.path({ head: b.var({ name: info.tag, loc: openTagSpan }), tail: [], loc: openTagSpan });
-        append(b.element({ path: tagPath, selfClosing: true, attributes: info.attrs, modifiers: info.modifiers, params: info.params, comments: [], children: [], openTag: openTagSpan, closeTag: null, loc: openTagSpan }));
+
+      if (info.selfClosing || isVoid) {
+        // selfClosing is true only for explicit />, not for void elements
+        const tagPath = buildTagPath(info.tag, info.ns, info.ns + info.tag.length);
+        append(b.element({
+          path: tagPath,
+          selfClosing: info.selfClosing,
+          attributes: info.attrs,
+          modifiers: info.modifiers,
+          params: info.params.map((bp: BlockParam) => b.var({ name: bp.name, loc: sp(bp.s, bp.e) })),
+          comments: info.comments,
+          children: [],
+          openTag: openTagSpan,
+          closeTag: null,
+          loc: openTagSpan,
+        }));
       } else {
-        stack.push({ kind: 'element', tag: info.tag, ltPos, openTagEnd: info.openTagEnd, attrs: info.attrs, modifiers: info.modifiers, params: info.params, comments: [], children: [] });
+        // Check for SVG title raw text mode
+        if (info.tag === 'title' && isInSVGContext()) {
+          const rawTextStart = pos;
+          const closeTag = '</title>';
+          const closeIdx = input.indexOf(closeTag, pos);
+          const rawText = closeIdx === -1 ? input.substring(pos) : input.substring(pos, closeIdx);
+          const rawTextEnd = closeIdx === -1 ? len : closeIdx;
+          const closeEnd = closeIdx !== -1 ? closeIdx + closeTag.length : len;
+          advanceTo(closeEnd);
+          const rawBody: ASTv1.Statement[] = rawText ? [b.text({ chars: rawText, loc: sp(rawTextStart, rawTextEnd) })] : [];
+          const closeTagSpan = closeIdx !== -1 ? sp(closeIdx, closeEnd) : null;
+          const tagPath = buildTagPath(info.tag, info.ns, info.ns + info.tag.length);
+          append(b.element({
+            path: tagPath, selfClosing: false,
+            attributes: info.attrs, modifiers: info.modifiers,
+            params: info.params.map((bp: BlockParam) => b.var({ name: bp.name, loc: sp(bp.s, bp.e) })),
+            comments: info.comments, children: rawBody,
+            openTag: openTagSpan, closeTag: closeTagSpan, loc: sp(ltPos, pos),
+          }));
+        } else {
+          // Push to element stack
+          const inSVG = isInSVGContext() || info.tag.toLowerCase() === 'svg';
+          stack.push({
+            kind: 'element', tag: info.tag, ns: info.ns, ltPos,
+            openTagEnd: info.openTagEnd,
+            attrs: info.attrs, modifiers: info.modifiers,
+            params: info.params.map((bp: BlockParam) => b.var({ name: bp.name, loc: sp(bp.s, bp.e) })),
+            comments: info.comments, children: [],
+            inSVG,
+          });
+        }
       }
       return;
     }
@@ -1019,10 +1585,8 @@ export function unifiedPreprocess(input: string, options: PreprocessOptions = {}
       if (mi === -1 || mi >= limit) { text += input.substring(seg, limit); break; }
       if (mi > 0 && input.charCodeAt(mi - 1) === CH_BACKSLASH) {
         if (mi > 1 && input.charCodeAt(mi - 2) === CH_BACKSLASH) {
-          // \\{{ — strip one \, stop ({{ is real mustache)
           text += input.substring(seg, mi - 1); limit = mi; break;
         }
-        // \{{ — becomes literal {{, consume the escaped mustache content
         text += input.substring(seg, mi - 1) + '{{';
         const ci = input.indexOf('}}', mi + 2);
         if (ci === -1) { text += input.substring(mi + 2, limit); break; }
@@ -1036,38 +1600,28 @@ export function unifiedPreprocess(input: string, options: PreprocessOptions = {}
     }
 
     if (!text.length) return false;
+    // Decode HTML entities in text content (mirrors simple-html-tokenizer behavior)
+    if (text.includes('&')) {
+      text = text.replace(/&([^;\s<>&]{1,20});/g, (_, name: string) => decodeHtmlEntity(name));
+    }
     advanceTo(limit);
     append(b.text({ chars: text, loc: sp(s, pos) }));
     return true;
   }
 
-  // ── Terminator check ──────────────────────────────────────────────────────────
-  function isTerminator(terminators: string[]): boolean {
-    if (!sw('{{')) return false;
-    let p = pos + 2;
-    if (p < len && input.charCodeAt(p) === CH_TILDE) p++;
-    let pw = p;
-    while (pw < len && isWhitespace(input.charCodeAt(pw))) pw++;
-    const c = input.charCodeAt(p);
-    for (const t of terminators) {
-      if (t === 'close' && c === CH_SLASH) return true;
-      if (t === 'inverse' && (c === CH_CARET || input.startsWith('else', pw))) return true;
-    }
-    return false;
-  }
-
   // ── Main scan loop ────────────────────────────────────────────────────────────
   while (pos < len) {
-    // Fast path: find the next delimiter
     const nlt = input.indexOf('<', pos);
     const nmu = input.indexOf('{{', pos);
     const elt = nlt === -1 ? len : nlt;
     const emu = nmu === -1 ? len : nmu;
 
     if (elt === len && emu === len) {
-      // Remaining is plain text
       if (pos < len) {
-        const ts = pos; const txt = input.substring(pos, len);
+        const ts = pos; let txt = input.substring(pos, len);
+        if (txt.includes('&')) {
+          txt = txt.replace(/&([^;\s<>&]{1,20});/g, (_, name: string) => decodeHtmlEntity(name));
+        }
         advanceTo(len);
         if (txt) append(b.text({ chars: txt, loc: sp(ts, len) }));
       }
@@ -1075,14 +1629,12 @@ export function unifiedPreprocess(input: string, options: PreprocessOptions = {}
     }
 
     if (elt <= emu) {
-      // '<' comes first (or tied with '{{' — prefer '<')
       if (elt > pos) {
         scanTextNode();
       } else {
         parseHtmlNode();
       }
     } else {
-      // '{{' comes first
       if (emu > pos) {
         scanTextNode();
       } else {
@@ -1104,9 +1656,12 @@ export function unifiedPreprocess(input: string, options: PreprocessOptions = {}
     }
   }
 
+  // Apply tilde whitespace stripping (~ flags)
+  const strippedBody1 = applyTildeStripping(rootBody);
+
   // Apply standalone whitespace stripping (mirrors Handlebars' WhitespaceControl)
   const ignoreStandalone = (options as any).parseOptions?.ignoreStandalone ?? false;
-  const strippedBody = ignoreStandalone ? rootBody : applyStandaloneStripping(rootBody);
+  const strippedBody = ignoreStandalone ? strippedBody1 : applyStandaloneStripping(strippedBody1, input, source);
 
   // Build template
   return b.template({
