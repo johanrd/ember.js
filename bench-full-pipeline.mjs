@@ -8,12 +8,12 @@
  */
 
 const MAIN    = '/tmp/ember-main/dist/packages/ember-template-compiler/index.js';
-const V2      = '/Users/johanrd/fremby/ember.js/dist/packages/ember-template-compiler/index.js';
+const V2      = '/Users/real-world-project/ember.js/dist/packages/ember-template-compiler/index.js';
 const RUST    = '/tmp/pr-21313/dist/dev/packages/ember-template-compiler/index.js';
 
 // Also import the syntax-only preprocess for the parse-only split
 const MAIN_SYNTAX = '/tmp/ember-main/packages/@glimmer/syntax/dist/es/index.js';
-const V2_SYNTAX   = '/Users/johanrd/fremby/ember.js/packages/@glimmer/syntax/dist/es/index.js';
+const V2_SYNTAX   = '/Users/real-world-project/ember.js/packages/@glimmer/syntax/dist/es/index.js';
 const RUST_SYNTAX = '/tmp/pr-21313/packages/@glimmer/syntax/dist/es/index.js';
 
 // ── Templates ──────────────────────────────────────────────────────────────────
