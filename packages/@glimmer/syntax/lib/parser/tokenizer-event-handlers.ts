@@ -9,8 +9,6 @@ import {
   localAssert,
 } from '@glimmer/debug-util';
 import { assign } from '@glimmer/util';
-import { parse, parseWithoutProcessing } from '@handlebars/parser';
-import { EntityParser } from 'simple-html-tokenizer';
 
 import type { EndTag, StartTag } from '../parser';
 import type { NodeVisitor } from '../traversal/visitor';
@@ -733,27 +731,19 @@ const syntax: Syntax = {
   Walker,
 };
 
-class CodemodEntityParser extends EntityParser {
-  // match upstream types, but never match an entity
-  constructor() {
-    super({});
-  }
-
-  override parse(): string | undefined {
-    return undefined;
-  }
-}
 
 export function preprocess(
   input: string | src.Source | HBS.Program,
   options: PreprocessOptions = {}
 ): ASTv1.Template {
-  let mode = options.mode || 'precompile';
-
-  // Fast path: unified single-pass scanner for raw string input in precompile mode.
-  // Source objects and pre-parsed HBS.Program inputs fall through to the full pipeline.
-  if (mode !== 'codemod' && typeof input === 'string') {
-    let template = unifiedPreprocess(input, options);
+  // Fast path: unified single-pass scanner for string or Source input (all modes).
+  if (typeof input === 'string' || input instanceof src.Source) {
+    const rawString = typeof input === 'string' ? input : input.source;
+    const scannerOptions =
+      input instanceof src.Source && input.module !== (options.meta?.moduleName ?? 'an unknown module')
+        ? { ...options, meta: { ...options.meta, moduleName: input.module } }
+        : options;
+    let template = unifiedPreprocess(rawString, scannerOptions);
     if (options.plugins?.ast) {
       for (const transform of options.plugins.ast) {
         let env: ASTPluginEnvironment = assign({}, options, { syntax }, { plugins: undefined });
@@ -764,33 +754,9 @@ export function preprocess(
     return template;
   }
 
-  let source: src.Source;
-  let ast: HBS.Program;
-  if (typeof input === 'string') {
-    source = new src.Source(input, options.meta?.moduleName);
-
-    if (mode === 'codemod') {
-      ast = parseWithoutProcessing(input, options.parseOptions) as HBS.Program;
-    } else {
-      ast = parse(input, options.parseOptions) as HBS.Program;
-    }
-  } else if (input instanceof src.Source) {
-    source = input;
-
-    if (mode === 'codemod') {
-      ast = parseWithoutProcessing(input.source, options.parseOptions) as HBS.Program;
-    } else {
-      ast = parse(input.source, options.parseOptions) as HBS.Program;
-    }
-  } else {
-    source = new src.Source('', options.meta?.moduleName);
-    ast = input;
-  }
-
-  let entityParser = undefined;
-  if (mode === 'codemod') {
-    entityParser = new CodemodEntityParser();
-  }
+  // Pre-parsed HBS.Program input: run HTML tokenization over the existing AST.
+  let source = new src.Source('', options.meta?.moduleName);
+  let ast: HBS.Program = input;
 
   let offsets = src.SourceSpan.forCharPositions(source, 0, source.source.length);
   ast.loc = {
@@ -799,7 +765,7 @@ export function preprocess(
     end: offsets.endPosition,
   };
 
-  let template = new TokenizerEventHandlers(source, entityParser, mode).parse(
+  let template = new TokenizerEventHandlers(source, undefined, options.mode ?? 'precompile').parse(
     ast,
     options.locals ?? []
   );
@@ -807,9 +773,7 @@ export function preprocess(
   if (options.plugins?.ast) {
     for (const transform of options.plugins.ast) {
       let env: ASTPluginEnvironment = assign({}, options, { syntax }, { plugins: undefined });
-
       let pluginResult = transform(env);
-
       traverse(template, pluginResult.visitor);
     }
   }

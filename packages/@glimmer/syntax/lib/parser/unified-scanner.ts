@@ -461,6 +461,7 @@ function applyStandaloneStripping(
 export function unifiedPreprocess(input: string, options: PreprocessOptions = {}): ASTv1.Template {
   const source = new srcApi.Source(input, options.meta?.moduleName);
   const len = input.length;
+  const codemod = options.mode === 'codemod';
 
   let pos = 0,
     line = 1,
@@ -827,7 +828,11 @@ export function unifiedPreprocess(input: string, options: PreprocessOptions = {}
     if (c === CH_AT) {
       col++;
       pos++;
-      if (cc() >= CH_0 && cc() <= CH_9) err('Expected identifier after @');
+      // After @, must have a valid non-digit identifier start (allow '.' to fall through to parsePath
+      // so it can produce the "Attempted to parse a path expression" error via buildPath)
+      const nc = cc();
+      if (nc >= CH_0 && nc <= CH_9) err("Expecting 'ID'");
+      if (!isIdChar(nc) && nc !== CH_DOT) err("Expecting 'ID'");
       return parsePath(true, s);
     }
     return parsePath(false, s);
@@ -1437,7 +1442,7 @@ export function unifiedPreprocess(input: string, options: PreprocessOptions = {}
           if (!bf || bf.kind !== 'block') err('Unexpected close block');
 
           const openName = pathOriginal(bf.path);
-          if (openName !== closeName) {
+          if (openName !== closeName && !bf.isChained) {
             throw generateSyntaxError(`${openName} doesn't match ${closeName}`, sp(open.s, pos));
           }
 
@@ -1581,6 +1586,12 @@ export function unifiedPreprocess(input: string, options: PreprocessOptions = {}
           if (mo.kind !== 'mustache' && mo.kind !== 'unescaped')
             err('Expected mustache in attribute value');
           const guts = parseMustacheGuts(mo.leftStrip, false, mo.s);
+          // {{{...}}} triple-curly: parseMustacheGuts only consumed "}}", consume the extra "}"
+          if (mo.kind === 'unescaped') {
+            if (cc() !== CH_RBRACE) err("Expected '}}}'");
+            col++;
+            pos++;
+          }
           parts.push(
             b.mustache({
               path: guts.path,
@@ -1605,7 +1616,7 @@ export function unifiedPreprocess(input: string, options: PreprocessOptions = {}
           if (pos < len && cc() === 59 /* ; */) {
             col++;
             pos++;
-            tbuf += decodeHtmlEntity(entity);
+            tbuf += codemod ? '&' + entity + ';' : decodeHtmlEntity(entity);
           } else {
             // Not a valid entity — treat as literal text
             tbuf += '&' + entity;
@@ -1641,6 +1652,9 @@ export function unifiedPreprocess(input: string, options: PreprocessOptions = {}
       });
     }
 
+    // Skip whitespace between '=' and unquoted value (e.g. class=\n{{foo}})
+    if (isWhitespace(cc())) skipWs();
+
     if (sw('{{')) {
       // Check for comment in beforeAttributeValue state
       const mo = classifyOpen();
@@ -1653,6 +1667,12 @@ export function unifiedPreprocess(input: string, options: PreprocessOptions = {}
       if (mo.kind !== 'mustache' && mo.kind !== 'unescaped')
         err('Expected mustache as attribute value');
       const guts = parseMustacheGuts(mo.leftStrip, false, mo.s);
+      // {{{...}}} triple-curly: parseMustacheGuts only consumed "}}", consume the extra "}"
+      if (mo.kind === 'unescaped') {
+        if (cc() !== CH_RBRACE) err("Expected '}}}'");
+        col++;
+        pos++;
+      }
       const mustacheEnd = pos;
       // Check for awkward follow-up: mustache followed by non-WS non-> content
       if (
@@ -1728,24 +1748,187 @@ export function unifiedPreprocess(input: string, options: PreprocessOptions = {}
   function parseElemBlockParams(): BlockParam[] {
     skipWs();
     if (!sw('as')) return [];
+    const asStart = pos;
     const aa = pos + 2;
+
+    // 'as|' without space — always an error
+    if (aa < len && input.charCodeAt(aa) === CH_PIPE) {
+      throw generateSyntaxError(
+        'Invalid block parameters syntax: expecting at least one space character between "as" and "|"',
+        sp(asStart, aa + 1)
+      );
+    }
+
     if (aa >= len || !isWhitespace(input.charCodeAt(aa))) return [];
     let p = aa;
     while (p < len && isWhitespace(input.charCodeAt(p))) p++;
     if (p >= len || input.charCodeAt(p) !== CH_PIPE) return [];
-    advanceTo(p + 1);
+    advanceTo(p + 1); // advance past opening '|'
+
     const params: BlockParam[] = [];
     skipWs();
-    while (cc() !== CH_PIPE && pos < len) {
+
+    // Empty params: '||'
+    if (cc() === CH_PIPE) {
+      col++;
+      pos++;
+      throw generateSyntaxError(
+        'Invalid block parameters syntax: empty parameters list, expecting at least one identifier',
+        sp(asStart, pos)
+      );
+    }
+
+    while (pos < len && cc() !== CH_PIPE) {
+      // Mustache in params
+      if (sw('{{')) {
+        const ms = pos;
+        const me = input.indexOf('}}', pos);
+        const meEnd = me !== -1 ? me + 2 : pos + 2;
+        advanceTo(meEnd);
+        throw generateSyntaxError(
+          'Invalid block parameters syntax: mustaches cannot be used inside parameters list',
+          sp(ms, meEnd)
+        );
+      }
+
+      // Tag closed prematurely (> or />) before closing '|' — include '>' in span
+      if (cc() === CH_GT) {
+        col++;
+        pos++;
+        throw generateSyntaxError(
+          'Invalid block parameters syntax: expecting "|" but the tag was closed prematurely',
+          sp(asStart, pos)
+        );
+      }
+      if (cc() === CH_SLASH && cc(1) === CH_GT) {
+        advanceTo(pos + 2);
+        throw generateSyntaxError(
+          'Invalid block parameters syntax: expecting "|" but the tag was closed prematurely',
+          sp(asStart, pos)
+        );
+      }
+
+      // EOF
+      if (pos >= len) {
+        throw generateSyntaxError(
+          'Invalid block parameters syntax: expecting the tag to be closed with ">" or "/>" after parameters list',
+          sp(asStart, pos)
+        );
+      }
+
       const ps = pos;
-      const id = scanId();
-      if (!id) err('Expected block param');
+      // Scan valid identifier chars (a-z, A-Z, 0-9, _, -)
+      let id = '';
+      while (pos < len) {
+        const c = cc();
+        if (
+          (c >= 65 && c <= 90) ||  // A-Z
+          (c >= 97 && c <= 122) || // a-z
+          (c >= 48 && c <= 57) ||  // 0-9
+          c === 95 ||              // _
+          c === 45                 // -
+        ) {
+          id += input[pos];
+          col++;
+          pos++;
+        } else break;
+      }
+
+      // Check for invalid chars immediately after or in place of identifier
+      if (
+        id === '' ||
+        (pos < len &&
+          cc() !== CH_PIPE &&
+          !isWhitespace(cc()) &&
+          cc() !== CH_GT &&
+          !(cc() === CH_SLASH && cc(1) === CH_GT) &&
+          !sw('{{'))
+      ) {
+        // Collect the bad identifier span
+        while (
+          pos < len &&
+          cc() !== CH_PIPE &&
+          !isWhitespace(cc()) &&
+          cc() !== CH_GT &&
+          !(cc() === CH_SLASH && cc(1) === CH_GT) &&
+          !sw('{{')
+        ) {
+          col++;
+          pos++;
+        }
+        const badId = input.substring(ps, pos);
+        throw generateSyntaxError(
+          `Invalid block parameters syntax: invalid identifier name \`${badId}\``,
+          sp(ps, pos)
+        );
+      }
+
       params.push({ name: id, s: ps, e: pos });
       skipWs();
     }
-    if (cc() !== CH_PIPE) err("Expected '|'");
+
+    // EOF without closing '|'
+    if (pos >= len) {
+      throw generateSyntaxError(
+        'Invalid block parameters syntax: expecting the tag to be closed with ">" or "/>" after parameters list',
+        sp(asStart, pos)
+      );
+    }
+
+    if (cc() !== CH_PIPE) {
+      throw generateSyntaxError(
+        'Invalid block parameters syntax: expecting "|" but the tag was closed prematurely',
+        sp(asStart, pos)
+      );
+    }
     col++;
-    pos++;
+    pos++; // consume closing '|'
+
+    // Check after closing '|': peek for extra content that isn't whitespace or '>' or '/>'
+    let scanP = pos;
+    while (scanP < len && isWhitespace(input.charCodeAt(scanP))) scanP++;
+
+    // EOF after closing '|' — tag not closed
+    if (scanP >= len) {
+      throw generateSyntaxError(
+        'Invalid block parameters syntax: expecting the tag to be closed with ">" or "/>" after parameters list',
+        sp(asStart, pos)
+      );
+    }
+
+    const sc = input.charCodeAt(scanP);
+    if (sc === CH_GT || (sc === CH_SLASH && input.charCodeAt(scanP + 1) === CH_GT)) {
+      // Fine — tag is closing normally; don't advance (outer loop handles it)
+    } else if (sc === CH_LBRACE && input.charCodeAt(scanP + 1) === CH_LBRACE) {
+      // Mustache modifier after params — span is just the mustache
+      const mustacheStart = scanP;
+      const mustacheClose = input.indexOf('}}', scanP);
+      const mustacheEnd = mustacheClose !== -1 ? mustacheClose + 2 : scanP + 2;
+      advanceTo(mustacheEnd);
+      throw generateSyntaxError(
+        'Invalid block parameters syntax: modifiers cannot follow parameters list',
+        sp(mustacheStart, mustacheEnd)
+      );
+    } else {
+      // Extra identifier or other content after closing '|' — span is just the extra content
+      advanceTo(scanP);
+      const extraStart = pos;
+      while (
+        pos < len &&
+        !isWhitespace(cc()) &&
+        cc() !== CH_GT &&
+        !(cc() === CH_SLASH && cc(1) === CH_GT) &&
+        !sw('{{')
+      ) {
+        col++;
+        pos++;
+      }
+      throw generateSyntaxError(
+        'Invalid block parameters syntax: expecting the tag to be closed with ">" or "/>" after parameters list',
+        sp(extraStart, pos)
+      );
+    }
+
     return params;
   }
 
@@ -1794,6 +1977,39 @@ export function unifiedPreprocess(input: string, options: PreprocessOptions = {}
     if (pos === ns) err('Expected tag name');
     const tag = input.substring(ns, pos);
     const ne = pos;
+
+    // Validate named block names (tags starting with ':')
+    if (tag.startsWith(':')) {
+      const blockName = tag.slice(1);
+      if (blockName.length === 0) {
+        // '<:' with no block name — consume to '>' for better span
+        const tagStart = ns - 1; // position of '<'
+        while (pos < len && cc() !== CH_GT) { col++; pos++; }
+        if (pos < len) { col++; pos++; } // consume '>'
+        throw generateSyntaxError(
+          'Invalid named block named detected, you may have created a named block without a name, or you may have began your name with a number. Named blocks must have names that are at least one character long, and begin with a lower case letter',
+          sp(tagStart, pos)
+        );
+      }
+      const firstCharCode = blockName.charCodeAt(0);
+      if (firstCharCode >= 65 && firstCharCode <= 90) {
+        // Starts with uppercase letter — scan open tag, find close tag, span both
+        const tagStart = ns - 1;
+        // Scan to end of open tag
+        while (pos < len && cc() !== CH_GT) { col++; pos++; }
+        if (pos < len) { col++; pos++; }
+        const openTagClosePos = pos;
+        // Scan to end of close tag
+        const closeTagStr = `</:${blockName}>`;
+        const closeTagIdx = input.indexOf(closeTagStr, pos);
+        const fullEnd = closeTagIdx !== -1 ? closeTagIdx + closeTagStr.length : openTagClosePos;
+        if (closeTagIdx !== -1) advanceTo(fullEnd);
+        throw generateSyntaxError(
+          `<:${blockName}> is not a valid named block, and named blocks must begin with a lowercase letter`,
+          sp(tagStart, fullEnd)
+        );
+      }
+    }
 
     // Check for mustache immediately after tag name (no whitespace) — error
     if (sw('{{')) {
@@ -1863,8 +2079,8 @@ export function unifiedPreprocess(input: string, options: PreprocessOptions = {}
         continue loop;
       }
 
-      // as |x| block params
-      if (sw('as') && isWhitespace(input.charCodeAt(pos + 2))) {
+      // as |x| block params — also trigger on 'as|' (no space) so parseElemBlockParams can throw
+      if (sw('as') && (isWhitespace(input.charCodeAt(pos + 2)) || input.charCodeAt(pos + 2) === CH_PIPE)) {
         const bp = parseElemBlockParams();
         if (bp.length > 0) {
           elemBP = bp;
@@ -1881,6 +2097,21 @@ export function unifiedPreprocess(input: string, options: PreprocessOptions = {}
       }
       if (cc() === CH_EQ) {
         throw generateSyntaxError(`attribute name cannot start with equals sign`, sp(pos, pos));
+      }
+      // Bare '|...|' block params without 'as' keyword
+      if (cc() === CH_PIPE) {
+        const pipeStart = pos;
+        col++; pos++; // consume opening '|'
+        skipWs();
+        // Scan to closing '|'
+        while (pos < len && cc() !== CH_PIPE && cc() !== CH_GT && !(cc() === CH_SLASH && cc(1) === CH_GT)) {
+          col++; pos++;
+        }
+        if (cc() === CH_PIPE) { col++; pos++; } // consume closing '|'
+        throw generateSyntaxError(
+          'Invalid block parameters syntax: block parameters must be preceded by the `as` keyword',
+          sp(pipeStart, pos)
+        );
       }
 
       // Attribute name
@@ -1983,19 +2214,37 @@ export function unifiedPreprocess(input: string, options: PreprocessOptions = {}
       }
       const closedTag = input.substring(ns, pos);
       skipWs();
-      if (cc() !== CH_GT) err(`Expected '>' in </${closedTag}>`);
+      if (cc() !== CH_GT) {
+        // Consume to find end of close tag for the error span (span = from '<' to just before '>')
+        while (pos < len && cc() !== CH_GT) { col++; pos++; }
+        const badEnd = pos;
+        if (pos < len) { col++; pos++; } // consume '>'
+        throw generateSyntaxError(
+          `Invalid end tag: closing tag must not have attributes`,
+          sp(closeStart, badEnd)
+        );
+      }
       col++;
       pos++;
       const closeEnd = pos;
 
+      // Void elements never have close tags (e.g. <input></input> is always wrong)
+      if (voidMap.has(closedTag)) {
+        throw generateSyntaxError(
+          `<${closedTag}> elements do not need end tags. You should remove it`,
+          sp(closeStart, closeEnd)
+        );
+      }
+
       // Find matching element frame
       let fi = stack.length - 1;
       while (fi >= 0 && stack[fi]?.kind !== 'element') fi--;
-      if (fi < 0)
+      if (fi < 0) {
         throw generateSyntaxError(
           `Closing tag </${closedTag}> without an open tag`,
           sp(closeStart, closeEnd)
         );
+      }
 
       const ef = stack[fi] as ElementFrame;
       if (ef.tag !== closedTag) {
@@ -2048,10 +2297,8 @@ export function unifiedPreprocess(input: string, options: PreprocessOptions = {}
       pos++; // skip <
       const info = parseStartTag(ltPos);
 
-      // Only lowercase-starting tags are void elements
-      const firstCharCode = info.tag.charCodeAt(0);
-      const isLowercaseStart = firstCharCode >= 97 && firstCharCode <= 122;
-      const isVoid = !info.selfClosing && isLowercaseStart && voidMap.has(info.tag.toLowerCase());
+      // Only exact-lowercase void element names are treated as void (e.g. img, not imG).
+      const isVoid = !info.selfClosing && voidMap.has(info.tag);
       const openTagSpan = sp(ltPos, info.openTagEnd);
 
       if (info.selfClosing || isVoid) {
@@ -2182,8 +2429,9 @@ export function unifiedPreprocess(input: string, options: PreprocessOptions = {}
     }
 
     if (!text.length) return false;
-    // Decode HTML entities in text content (mirrors simple-html-tokenizer behavior)
-    if (text.includes('&')) {
+    // Decode HTML entities in text content (mirrors simple-html-tokenizer behavior).
+    // In codemod mode, preserve entities as-is to keep original source positions.
+    if (!codemod && text.includes('&')) {
       text = text.replace(/&([^;\s<>&]{1,20});/g, (_, name: string) => decodeHtmlEntity(name));
     }
     advanceTo(limit);
@@ -2202,7 +2450,7 @@ export function unifiedPreprocess(input: string, options: PreprocessOptions = {}
       if (pos < len) {
         const ts = pos;
         let txt = input.substring(pos, len);
-        if (txt.includes('&')) {
+        if (!codemod && txt.includes('&')) {
           txt = txt.replace(/&([^;\s<>&]{1,20});/g, (_, name: string) => decodeHtmlEntity(name));
         }
         advanceTo(len);
@@ -2231,7 +2479,7 @@ export function unifiedPreprocess(input: string, options: PreprocessOptions = {}
     // stack always has at least the root template frame when length > 1
     const top = stack[stack.length - 1] as Frame;
     if (top.kind === 'element') {
-      throw generateSyntaxError(`Unclosed element \`${top.tag}\``, sp(top.ltPos, pos));
+      throw generateSyntaxError(`Unclosed element \`${top.tag}\``, sp(top.ltPos, top.openTagEnd));
     }
     if (top.kind === 'block') {
       const name = pathOriginal(top.path);
@@ -2240,10 +2488,10 @@ export function unifiedPreprocess(input: string, options: PreprocessOptions = {}
   }
 
   // Apply tilde whitespace stripping (~ flags)
-  const strippedBody1 = applyTildeStripping(rootBody);
+  const strippedBody1 = codemod ? rootBody : applyTildeStripping(rootBody);
 
   // Apply standalone whitespace stripping (mirrors Handlebars' WhitespaceControl)
-  const ignoreStandalone = options.parseOptions?.ignoreStandalone ?? false;
+  const ignoreStandalone = codemod || (options.parseOptions?.ignoreStandalone ?? false);
   const strippedBody = ignoreStandalone
     ? strippedBody1
     : applyStandaloneStripping(strippedBody1, input, source);
