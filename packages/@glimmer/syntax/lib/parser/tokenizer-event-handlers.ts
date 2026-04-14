@@ -18,6 +18,7 @@ import type * as ASTv1 from '../v1/api';
 import type * as HBS from '../v1/handlebars-ast';
 
 import print from '../generation/print';
+import { unifiedPreprocess } from './unified-scanner';
 import { voidMap } from '../generation/printer';
 import * as src from '../source/api';
 import { generateSyntaxError } from '../syntax-error';
@@ -748,6 +749,25 @@ export function preprocess(
   options: PreprocessOptions = {}
 ): ASTv1.Template {
   let mode = options.mode || 'precompile';
+
+  // Fast path: unified single-pass scanner for string input in precompile mode.
+  if (mode !== 'codemod' && typeof input !== 'object') {
+    const str = input instanceof src.Source ? input.source : (input as string);
+    const opts =
+      input instanceof src.Source && !options.meta?.moduleName
+        ? { ...options, meta: { ...options.meta, moduleName: (input as src.Source).module } }
+        : options;
+    let template = unifiedPreprocess(str, opts);
+    if (options.plugins?.ast) {
+      let source = new src.Source(str, options.meta?.moduleName);
+      for (const transform of options.plugins.ast) {
+        let env: ASTPluginEnvironment = assign({}, options, { syntax }, { plugins: undefined });
+        let pluginResult = transform(env);
+        traverse(template, pluginResult.visitor);
+      }
+    }
+    return template;
+  }
 
   let source: src.Source;
   let ast: HBS.Program;
