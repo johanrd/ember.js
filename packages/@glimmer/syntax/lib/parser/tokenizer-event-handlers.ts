@@ -731,7 +731,6 @@ const syntax: Syntax = {
   Walker,
 };
 
-
 export function preprocess(
   input: string | src.Source | HBS.Program,
   options: PreprocessOptions = {}
@@ -740,7 +739,8 @@ export function preprocess(
   if (typeof input === 'string' || input instanceof src.Source) {
     const rawString = typeof input === 'string' ? input : input.source;
     const scannerOptions =
-      input instanceof src.Source && input.module !== (options.meta?.moduleName ?? 'an unknown module')
+      input instanceof src.Source &&
+      input.module !== (options.meta?.moduleName ?? 'an unknown module')
         ? { ...options, meta: { ...options.meta, moduleName: input.module } }
         : options;
     let template = unifiedPreprocess(rawString, scannerOptions);
