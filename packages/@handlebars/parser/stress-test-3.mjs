@@ -1,6 +1,6 @@
 /**
  * Stress test round 3:
- * 1. Parse ALL .hbs/.gts/.gjs across every project in ~/fremby
+ * 1. Parse ALL .hbs/.gts/.gjs across every project in ~/real-world-project
  * 2. Adversarial fuzzing — generated templates with random combinations
  * 3. Pathological patterns designed to break recursive descent parsers
  */
