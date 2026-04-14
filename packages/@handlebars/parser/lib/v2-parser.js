@@ -937,7 +937,7 @@ export function v2ParseWithoutProcessing(input, options) {
     // So @0, @1, etc. are parse errors in Jison.
     const c = cc();
     if (c >= CH_0 && c <= CH_9) {
-      error('Expected path identifier after @');
+      error("Expecting 'ID'");
     }
     const segments = parsePathSegments();
     return preparePath(true, false, segments, locFrom(startP));
@@ -962,7 +962,7 @@ export function v2ParseWithoutProcessing(input, options) {
   function parsePathSegments() {
     const segments = [];
     const first = scanIdOrEscaped();
-    if (first === null) error('Expected path identifier');
+    if (first === null) error("Expecting 'ID'");
     segments.push({ part: idFromToken(first), original: first });
 
     while (pos < len) {
