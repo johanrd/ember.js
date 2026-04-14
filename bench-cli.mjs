@@ -186,7 +186,9 @@ const TEMPLATES = [
 </div>`,
 
   // Extra medium-sized templates to fill out the corpus
-  ...Array.from({ length: 30 }, (_, i) => `
+  ...Array.from(
+    { length: 30 },
+    (_, i) => `
 <section class="section-${i}" data-index="${i}">
   <header>
     <h2>{{@title}}</h2>
@@ -206,10 +208,13 @@ const TEMPLATES = [
       </div>
     {{/each}}
   </div>
-</section>`),
+</section>`
+  ),
 ];
 
-console.log(`Corpus: ${TEMPLATES.length} distinct templates, total ${TEMPLATES.reduce((s, t) => s + t.length, 0)} chars\n`);
+console.log(
+  `Corpus: ${TEMPLATES.length} distinct templates, total ${TEMPLATES.reduce((s, t) => s + t.length, 0)} chars\n`
+);
 
 // ─── Measurements ─────────────────────────────────────────────────────────────
 
@@ -250,7 +255,13 @@ const pr = await measureParser('PR #21313 (rust)', prDistPath);
 // ─── Output ───────────────────────────────────────────────────────────────────
 
 function row(label, cur, prv, unit = 'ms', lowerIsBetter = true) {
-  const winner = lowerIsBetter ? (cur < prv ? 'current' : 'rust-pr') : (cur > prv ? 'current' : 'rust-pr');
+  const winner = lowerIsBetter
+    ? cur < prv
+      ? 'current'
+      : 'rust-pr'
+    : cur > prv
+      ? 'current'
+      : 'rust-pr';
   const ratio = winner === 'current' ? (prv / cur).toFixed(2) : (cur / prv).toFixed(2);
   const arrow = winner === 'current' ? '<' : '>';
   console.log(
@@ -258,19 +269,23 @@ function row(label, cur, prv, unit = 'ms', lowerIsBetter = true) {
   );
 }
 
-console.log(`${'Metric'.padEnd(32)} ${'current'.padStart(10)}     ${'PR#21313'.padStart(10)}   winner`);
+console.log(
+  `${'Metric'.padEnd(32)} ${'current'.padStart(10)}     ${'PR#21313'.padStart(10)}   winner`
+);
 console.log('-'.repeat(80));
 
-row('Module load (import)',         current.loadMs,      pr.loadMs);
-row('First parse (cold)',           current.firstParseMs, pr.firstParseMs);
+row('Module load (import)', current.loadMs, pr.loadMs);
+row('First parse (cold)', current.firstParseMs, pr.firstParseMs);
 row(`Build pass (${TEMPLATES.length} tpl, best of 10)`, current.buildMin, pr.buildMin);
-row(`Build pass (p50)`,             current.buildMed,    pr.buildMed);
-row('Per-template avg (build)',     current.perTemplate, pr.perTemplate, 'ms');
-row('500-template project (proj)',  current.proj500,     pr.proj500, 'ms');
+row(`Build pass (p50)`, current.buildMed, pr.buildMed);
+row('Per-template avg (build)', current.perTemplate, pr.perTemplate, 'ms');
+row('500-template project (proj)', current.proj500, pr.proj500, 'ms');
 
 console.log('');
 console.log('Notes:');
 console.log(`  current branch : JS pipeline (handlebars v2 parser)`);
 console.log(`  PR #21313      : Rust/WASM (pest.rs) + JSON bridge + JS post-processing`);
-console.log(`  "build pass"   : single-pass over ${TEMPLATES.length} distinct templates (no repeat, simulates CLI)`);
+console.log(
+  `  "build pass"   : single-pass over ${TEMPLATES.length} distinct templates (no repeat, simulates CLI)`
+);
 console.log(`  "first parse"  : includes any lazy WASM init (one-time per process)`);

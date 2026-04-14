@@ -97,7 +97,10 @@ function nodeShape(node, depth = 0) {
 
 function flatShapes(node, out = []) {
   if (!node) return out;
-  if (Array.isArray(node)) { for (const n of node) flatShapes(n, out); return out; }
+  if (Array.isArray(node)) {
+    for (const n of node) flatShapes(n, out);
+    return out;
+  }
   if (typeof node !== 'object') return out;
   if (node.type) out.push(nodeShape(node));
   for (const [k, v] of Object.entries(node)) {
@@ -110,8 +113,16 @@ function flatShapes(node, out = []) {
 let allCorrect = true;
 for (const [name, tpl] of templates.slice(0, 3)) {
   let refAst, uniAst, refErr, uniErr;
-  try { refAst = preprocess(tpl); } catch (e) { refErr = e.message; }
-  try { uniAst = unifiedPreprocess(tpl); } catch (e) { uniErr = e.message; }
+  try {
+    refAst = preprocess(tpl);
+  } catch (e) {
+    refErr = e.message;
+  }
+  try {
+    uniAst = unifiedPreprocess(tpl);
+  } catch (e) {
+    uniErr = e.message;
+  }
 
   if (refErr || uniErr) {
     console.log(`${name}: ref=${refErr ?? 'ok'} uni=${uniErr ?? 'ok'}`);
@@ -147,7 +158,13 @@ console.log();
 console.log('━'.repeat(70));
 console.log('BENCHMARK (ms/call, warmed JIT)');
 console.log('━'.repeat(70));
-console.log('template'.padEnd(14) + 'chars'.padStart(7) + '  preprocess'.padStart(14) + '  unifiedPreprocess'.padStart(21) + '  speedup'.padStart(10));
+console.log(
+  'template'.padEnd(14) +
+    'chars'.padStart(7) +
+    '  preprocess'.padStart(14) +
+    '  unifiedPreprocess'.padStart(21) +
+    '  speedup'.padStart(10)
+);
 console.log('─'.repeat(70));
 
 function bench(fn, tpl, N) {
@@ -169,9 +186,15 @@ for (const [name, tpl, N] of templates) {
   const speedup = refMs / uniMs;
   console.log(
     name.padEnd(14) +
-    String(tpl.length).padStart(7) + '  ' +
-    refMs.toFixed(4).padStart(12) + 'ms' +
-    uniMs.toFixed(4).padStart(19) + 'ms' +
-    (speedup > 1 ? `  ${speedup.toFixed(2)}x faster` : `  ${(1/speedup).toFixed(2)}x slower`).padStart(12)
+      String(tpl.length).padStart(7) +
+      '  ' +
+      refMs.toFixed(4).padStart(12) +
+      'ms' +
+      uniMs.toFixed(4).padStart(19) +
+      'ms' +
+      (speedup > 1
+        ? `  ${speedup.toFixed(2)}x faster`
+        : `  ${(1 / speedup).toFixed(2)}x slower`
+      ).padStart(12)
   );
 }

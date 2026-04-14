@@ -4,19 +4,21 @@
  */
 import { v2ParseWithoutProcessing as parse } from './lib/v2-parser.js';
 
-let passed = 0, failed = 0;
+let passed = 0,
+  failed = 0;
 
 function test(tpl, label) {
   try {
     const ast = parse(tpl);
     if (!ast || ast.type !== 'Program') {
       console.log(`FAIL [${label}]: got ${ast?.type}`);
-      failed++; return;
+      failed++;
+      return;
     }
     passed++;
-  } catch(e) {
-    console.log(`FAIL [${label}]: ${e.message?.substring(0,80)}`);
-    console.log(`  template: ${JSON.stringify(tpl).substring(0,80)}`);
+  } catch (e) {
+    console.log(`FAIL [${label}]: ${e.message?.substring(0, 80)}`);
+    console.log(`  template: ${JSON.stringify(tpl).substring(0, 80)}`);
     failed++;
   }
 }
@@ -25,9 +27,9 @@ function testError(tpl, label) {
   try {
     parse(tpl);
     console.log(`FAIL [${label}]: expected error but parsed OK`);
-    console.log(`  template: ${JSON.stringify(tpl).substring(0,80)}`);
+    console.log(`  template: ${JSON.stringify(tpl).substring(0, 80)}`);
     failed++;
-  } catch(e) {
+  } catch (e) {
     passed++;
   }
 }
@@ -37,8 +39,11 @@ console.log('=== ROUND 2: TRYING TO BREAK IT ===\n');
 // =====================================================================
 // 1. PATHOLOGICAL / STRESS INPUTS
 // =====================================================================
-test('{{a}}{{b}}{{c}}{{d}}{{e}}{{f}}{{g}}{{h}}{{i}}{{j}}{{k}}{{l}}{{m}}{{n}}{{o}}{{p}}', '16 adjacent mustaches');
-test('{{a}}' .repeat(100), '100 adjacent mustaches');
+test(
+  '{{a}}{{b}}{{c}}{{d}}{{e}}{{f}}{{g}}{{h}}{{i}}{{j}}{{k}}{{l}}{{m}}{{n}}{{o}}{{p}}',
+  '16 adjacent mustaches'
+);
+test('{{a}}'.repeat(100), '100 adjacent mustaches');
 test('x'.repeat(10000) + '{{foo}}', '10K content then mustache');
 test('{{foo}}' + 'x'.repeat(10000), 'mustache then 10K content');
 test('x'.repeat(100000), '100K content no mustaches');
@@ -58,8 +63,11 @@ deepSexpr += '}}';
 test(deepSexpr, '20-deep nested sub-expressions');
 
 // Many params
-test('{{foo ' + Array.from({length: 50}, (_, i) => `p${i}`).join(' ') + '}}', '50 params');
-test('{{foo ' + Array.from({length: 50}, (_, i) => `k${i}=v${i}`).join(' ') + '}}', '50 hash pairs');
+test('{{foo ' + Array.from({ length: 50 }, (_, i) => `p${i}`).join(' ') + '}}', '50 params');
+test(
+  '{{foo ' + Array.from({ length: 50 }, (_, i) => `k${i}=v${i}`).join(' ') + '}}',
+  '50 hash pairs'
+);
 
 // =====================================================================
 // 2. BOUNDARY CONDITIONS — MINIMAL/EMPTY VARIANTS
@@ -136,7 +144,8 @@ test('{{~#> partial~}}x{{~/partial~}}', 'partial block both strip');
 // =====================================================================
 // 8. COMPLEX REAL-WORLD PATTERNS
 // =====================================================================
-test(`
+test(
+  `
 <div class="sidebar {{if @collapsed "collapsed"}} {{if @theme @theme "default"}}">
   {{#if @showNav}}
     <nav role="navigation" aria-label={{t "nav.label"}}>
@@ -162,9 +171,12 @@ test(`
     <p class="empty-state">{{t "nav.empty"}}</p>
   {{/if}}
 </div>
-`.trim(), 'real: complex nav component');
+`.trim(),
+  'real: complex nav component'
+);
 
-test(`
+test(
+  `
 {{#let
   (hash
     title=@model.title
@@ -189,9 +201,12 @@ test(`
     </footer>
   </article>
 {{/let}}
-`.trim(), 'real: let with complex hash');
+`.trim(),
+  'real: let with complex hash'
+);
 
-test(`
+test(
+  `
 {{#each @rows as |row rowIndex|}}
   <tr class={{if (eq rowIndex @selectedRow) "selected"}}>
     {{#each @columns as |column colIndex|}}
@@ -207,9 +222,12 @@ test(`
     {{/each}}
   </tr>
 {{/each}}
-`.trim(), 'real: data grid component');
+`.trim(),
+  'real: data grid component'
+);
 
-test(`
+test(
+  `
 {{! This is a file upload component }}
 {{!--
   It supports drag and drop, file selection,
@@ -242,7 +260,9 @@ test(`
     <p>{{t "upload.dropzone"}}</p>
   {{/if}}
 </div>
-`.trim(), 'real: file upload component');
+`.trim(),
+  'real: file upload component'
+);
 
 // =====================================================================
 // 9. TRICKY CLOSE/OPEN PATTERNS
@@ -284,8 +304,14 @@ testError('{{> foo as |bar|}}', 'partial with as — invalid syntax');
 // =====================================================================
 // 13. ELSE CHAIN STRESS
 // =====================================================================
-test('{{#if a}}1{{else if b}}2{{else if c}}3{{else if d}}4{{else if e}}5{{else}}6{{/if}}', '5 else-if chains');
-test('{{#if a}}\n  {{#if b}}\n    inner\n  {{else}}\n    else-inner\n  {{/if}}\n{{else if c}}\n  chain\n{{else}}\n  final\n{{/if}}', 'nested blocks in else chain');
+test(
+  '{{#if a}}1{{else if b}}2{{else if c}}3{{else if d}}4{{else if e}}5{{else}}6{{/if}}',
+  '5 else-if chains'
+);
+test(
+  '{{#if a}}\n  {{#if b}}\n    inner\n  {{else}}\n    else-inner\n  {{/if}}\n{{else if c}}\n  chain\n{{else}}\n  final\n{{/if}}',
+  'nested blocks in else chain'
+);
 
 // =====================================================================
 // 14. PATH EXPRESSION EDGE CASES
