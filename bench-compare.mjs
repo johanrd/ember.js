@@ -125,9 +125,10 @@ function printTable(rows) {
   console.log(sep);
   for (const row of rows) {
     const faster = row.current < row.pr ? 'current' : 'rust-pr';
-    const ratio = row.current < row.pr
-      ? (row.pr / row.current).toFixed(2) + 'x (current wins)'
-      : (row.current / row.pr).toFixed(2) + 'x (rust wins)';
+    const ratio =
+      row.current < row.pr
+        ? (row.pr / row.current).toFixed(2) + 'x (current wins)'
+        : (row.current / row.pr).toFixed(2) + 'x (rust wins)';
     console.log(
       [
         pad(row.template, colWidths[0]),
@@ -182,7 +183,8 @@ printTable(rows);
 
 // Phase breakdown: measure the PR's WASM parse vs JS post-processing
 console.log('\n--- Phase breakdown (PR #21313, medium template) ---');
-const { parseTemplateToJson } = await import('/tmp/pr-21313/packages/@glimmer/syntax/pkg/universal.mjs');
+const { parseTemplateToJson } =
+  await import('/tmp/pr-21313/packages/@glimmer/syntax/pkg/universal.mjs');
 const src = medium;
 const N2 = 1000;
 

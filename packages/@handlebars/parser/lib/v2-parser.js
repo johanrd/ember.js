@@ -190,9 +190,12 @@ export function v2ParseWithoutProcessing(input, options) {
   }
 
   function error(msg) {
-    throw new Exception('Parse error on line ' + line + ':\n' + input.slice(pos, pos + 20) + '\n' + msg, {
-      loc: makeLoc(line, col),
-    });
+    throw new Exception(
+      'Parse error on line ' + line + ':\n' + input.slice(pos, pos + 20) + '\n' + msg,
+      {
+        loc: makeLoc(line, col),
+      }
+    );
   }
 
   // === Scanning primitives ===
@@ -650,7 +653,12 @@ export function v2ParseWithoutProcessing(input, options) {
         // Partial: {{>
         col++;
         pos++;
-        return { kind: 'partial', start: openStart, leftStrip, raw: input.substring(startPos, pos) };
+        return {
+          kind: 'partial',
+          start: openStart,
+          leftStrip,
+          raw: input.substring(startPos, pos),
+        };
       }
 
       case CH_HASH: {
@@ -839,25 +847,33 @@ export function v2ParseWithoutProcessing(input, options) {
     const sexpr = parseSexpr();
     // Peek for separator WITHOUT consuming whitespace — the caller
     // owns trailing whitespace (affects loc of containing HashPair etc.)
-    const savedPos = pos, savedLine = line, savedCol = col;
+    const savedPos = pos,
+      savedLine = line,
+      savedCol = col;
     skipWs();
     if (cc() === CH_DOT || cc() === CH_SLASH) {
       return parsePath(false, sexpr, startP);
     }
     // Restore — don't consume trailing whitespace
-    pos = savedPos; line = savedLine; col = savedCol;
+    pos = savedPos;
+    line = savedLine;
+    col = savedCol;
     return sexpr;
   }
 
   function parseArrayLiteralOrPath() {
     const startP = savePos(); // save pos BEFORE array literal
     const arr = parseArrayLiteral();
-    const savedPos = pos, savedLine = line, savedCol = col;
+    const savedPos = pos,
+      savedLine = line,
+      savedCol = col;
     skipWs();
     if (cc() === CH_DOT || cc() === CH_SLASH) {
       return parsePath(false, arr, startP);
     }
-    pos = savedPos; line = savedLine; col = savedCol;
+    pos = savedPos;
+    line = savedLine;
+    col = savedCol;
     return arr;
   }
 
@@ -1624,7 +1640,14 @@ export function v2ParseWithoutProcessing(input, options) {
 
     // Build the inner block (using close = nestedInverse's last close or the parent's)
     // The close strip for chained blocks comes from the parent's close block
-    const innerBlock = buildBlock(openInfo, program, nestedInverse, nestedInverse, false, chainOpen.start);
+    const innerBlock = buildBlock(
+      openInfo,
+      program,
+      nestedInverse,
+      nestedInverse,
+      false,
+      chainOpen.start
+    );
 
     const wrapperProgram = prepareProgram([innerBlock], program.loc);
     wrapperProgram.chained = true;
@@ -1700,7 +1723,10 @@ export function v2ParseWithoutProcessing(input, options) {
     let hash = undefined;
 
     skipWs();
-    while (pos < len && !(cc() === CH_RBRACE && cc(1) === CH_RBRACE && cc(2) === CH_RBRACE && cc(3) === CH_RBRACE)) {
+    while (
+      pos < len &&
+      !(cc() === CH_RBRACE && cc(1) === CH_RBRACE && cc(2) === CH_RBRACE && cc(3) === CH_RBRACE)
+    ) {
       if (isAtHash()) {
         hash = parseHash();
         break;

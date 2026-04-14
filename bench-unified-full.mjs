@@ -9,11 +9,11 @@
  * Run: node bench-unified-full.mjs
  */
 
-const SYNTAX_PATH    = './packages/@glimmer/syntax/dist/es/index.js';
-const COMPILER_PATH  = `${new URL('.', import.meta.url).pathname}dist/packages/ember-template-compiler/index.js`;
+const SYNTAX_PATH = './packages/@glimmer/syntax/dist/es/index.js';
+const COMPILER_PATH = `${new URL('.', import.meta.url).pathname}dist/packages/ember-template-compiler/index.js`;
 
 const { preprocess, unifiedPreprocess } = await import(SYNTAX_PATH);
-const { precompile }                    = await import(COMPILER_PATH);
+const { precompile } = await import(COMPILER_PATH);
 
 // ── Templates ──────────────────────────────────────────────────────────────────
 const small = `<div>{{this.title}}</div>`;
@@ -76,10 +76,10 @@ const realWorld = `
 const large = medium.repeat(10);
 
 const templates = [
-  ['small',       small,     5000],
-  ['medium',      medium,    2000],
-  ['real-world',  realWorld, 1000],
-  ['large (10x)', large,      300],
+  ['small', small, 5000],
+  ['medium', medium, 2000],
+  ['real-world', realWorld, 1000],
+  ['large (10x)', large, 300],
 ];
 
 function bench(fn, tpl, N) {
@@ -93,24 +93,33 @@ function bench(fn, tpl, N) {
 console.log('━'.repeat(80));
 console.log('PARSE ONLY  (preprocess / unifiedPreprocess, ms/call, warmed JIT)');
 console.log('━'.repeat(80));
-console.log('template'.padEnd(14) + 'chars'.padStart(7) +
-            '  v2-parser'.padStart(12) + '  unified-1pass'.padStart(16) + '  speedup'.padStart(10));
+console.log(
+  'template'.padEnd(14) +
+    'chars'.padStart(7) +
+    '  v2-parser'.padStart(12) +
+    '  unified-1pass'.padStart(16) +
+    '  speedup'.padStart(10)
+);
 console.log('─'.repeat(63));
 
 const parseResults = {};
 for (const [name, tpl, N] of templates) {
-  const v2Ms   = bench(preprocess,       tpl, N);
-  const uniMs  = bench(unifiedPreprocess, tpl, N);
+  const v2Ms = bench(preprocess, tpl, N);
+  const uniMs = bench(unifiedPreprocess, tpl, N);
   parseResults[name] = { v2Ms, uniMs, chars: tpl.length };
   const speedup = v2Ms / uniMs;
   console.log(
     name.padEnd(14) +
-    String(tpl.length).padStart(7) + '  ' +
-    v2Ms.toFixed(4).padStart(10) + 'ms' +
-    uniMs.toFixed(4).padStart(13) + 'ms' +
-    (speedup > 1
-      ? `  ${speedup.toFixed(2)}x faster`
-      : `  ${(1/speedup).toFixed(2)}x slower`).padStart(14)
+      String(tpl.length).padStart(7) +
+      '  ' +
+      v2Ms.toFixed(4).padStart(10) +
+      'ms' +
+      uniMs.toFixed(4).padStart(13) +
+      'ms' +
+      (speedup > 1
+        ? `  ${speedup.toFixed(2)}x faster`
+        : `  ${(1 / speedup).toFixed(2)}x slower`
+      ).padStart(14)
   );
 }
 
@@ -123,24 +132,33 @@ console.log('FULL PIPELINE  (ms/call)');
 console.log('  v2-parser column = precompile() from this build');
 console.log('  unified column   = unified_preprocess + (precompile - preprocess)');
 console.log('━'.repeat(80));
-console.log('template'.padEnd(14) + 'chars'.padStart(7) +
-            '  v2-parser'.padStart(12) + '  unified-1pass'.padStart(16) + '  speedup'.padStart(10));
+console.log(
+  'template'.padEnd(14) +
+    'chars'.padStart(7) +
+    '  v2-parser'.padStart(12) +
+    '  unified-1pass'.padStart(16) +
+    '  speedup'.padStart(10)
+);
 console.log('─'.repeat(63));
 
 for (const [name, tpl, N] of templates) {
   const { v2Ms, uniMs } = parseResults[name];
-  const fullV2Ms  = bench(precompile, tpl, N);
-  const compileMs = fullV2Ms - v2Ms;            // compile-only overhead (shared code)
-  const fullUniMs = uniMs + compileMs;          // projected unified full pipeline
-  const speedup   = fullV2Ms / fullUniMs;
+  const fullV2Ms = bench(precompile, tpl, N);
+  const compileMs = fullV2Ms - v2Ms; // compile-only overhead (shared code)
+  const fullUniMs = uniMs + compileMs; // projected unified full pipeline
+  const speedup = fullV2Ms / fullUniMs;
   console.log(
     name.padEnd(14) +
-    String(tpl.length).padStart(7) + '  ' +
-    fullV2Ms.toFixed(4).padStart(10) + 'ms' +
-    fullUniMs.toFixed(4).padStart(13) + 'ms' +
-    (speedup > 1
-      ? `  ${speedup.toFixed(2)}x faster`
-      : `  ${(1/speedup).toFixed(2)}x slower`).padStart(14)
+      String(tpl.length).padStart(7) +
+      '  ' +
+      fullV2Ms.toFixed(4).padStart(10) +
+      'ms' +
+      fullUniMs.toFixed(4).padStart(13) +
+      'ms' +
+      (speedup > 1
+        ? `  ${speedup.toFixed(2)}x faster`
+        : `  ${(1 / speedup).toFixed(2)}x slower`
+      ).padStart(14)
   );
 }
 
@@ -150,28 +168,28 @@ console.log('PARSE vs COMPILE SPLIT  (medium template)');
 console.log('━'.repeat(80));
 
 const N_SPLIT = 3000;
-const v2ParseMs    = bench(preprocess,        medium, N_SPLIT);
-const uniParseMs   = bench(unifiedPreprocess,  medium, N_SPLIT);
-const v2FullMs     = bench(precompile,         medium, N_SPLIT);
+const v2ParseMs = bench(preprocess, medium, N_SPLIT);
+const uniParseMs = bench(unifiedPreprocess, medium, N_SPLIT);
+const v2FullMs = bench(precompile, medium, N_SPLIT);
 const compileOnlyMs = v2FullMs - v2ParseMs;
-const uniFullMs    = uniParseMs + compileOnlyMs;
+const uniFullMs = uniParseMs + compileOnlyMs;
 
-function pct(part, total) { return ((part / total) * 100).toFixed(0) + '%'; }
+function pct(part, total) {
+  return ((part / total) * 100).toFixed(0) + '%';
+}
 
 console.log('\n' + '                       v2-parser         unified-1pass');
 console.log('─'.repeat(55));
 console.log(
   'preprocess() only    ' +
-  `${v2ParseMs.toFixed(3)}ms (${pct(v2ParseMs, v2FullMs)})`.padEnd(20) +
-  `${uniParseMs.toFixed(3)}ms (${pct(uniParseMs, uniFullMs)})`
+    `${v2ParseMs.toFixed(3)}ms (${pct(v2ParseMs, v2FullMs)})`.padEnd(20) +
+    `${uniParseMs.toFixed(3)}ms (${pct(uniParseMs, uniFullMs)})`
 );
 console.log(
   'compile only (same)  ' +
-  `${compileOnlyMs.toFixed(3)}ms (${pct(compileOnlyMs, v2FullMs)})`.padEnd(20) +
-  `${compileOnlyMs.toFixed(3)}ms (${pct(compileOnlyMs, uniFullMs)})`
+    `${compileOnlyMs.toFixed(3)}ms (${pct(compileOnlyMs, v2FullMs)})`.padEnd(20) +
+    `${compileOnlyMs.toFixed(3)}ms (${pct(compileOnlyMs, uniFullMs)})`
 );
 console.log(
-  'total                ' +
-  `${v2FullMs.toFixed(3)}ms`.padEnd(20) +
-  `${uniFullMs.toFixed(3)}ms`
+  'total                ' + `${v2FullMs.toFixed(3)}ms`.padEnd(20) + `${uniFullMs.toFixed(3)}ms`
 );

@@ -750,16 +750,11 @@ export function preprocess(
 ): ASTv1.Template {
   let mode = options.mode || 'precompile';
 
-  // Fast path: unified single-pass scanner for string input in precompile mode.
-  if (mode !== 'codemod' && typeof input !== 'object') {
-    const str = input instanceof src.Source ? input.source : (input as string);
-    const opts =
-      input instanceof src.Source && !options.meta?.moduleName
-        ? { ...options, meta: { ...options.meta, moduleName: (input as src.Source).module } }
-        : options;
-    let template = unifiedPreprocess(str, opts);
+  // Fast path: unified single-pass scanner for raw string input in precompile mode.
+  // Source objects and pre-parsed HBS.Program inputs fall through to the full pipeline.
+  if (mode !== 'codemod' && typeof input === 'string') {
+    let template = unifiedPreprocess(input, options);
     if (options.plugins?.ast) {
-      let source = new src.Source(str, options.meta?.moduleName);
       for (const transform of options.plugins.ast) {
         let env: ASTPluginEnvironment = assign({}, options, { syntax }, { plugins: undefined });
         let pluginResult = transform(env);
