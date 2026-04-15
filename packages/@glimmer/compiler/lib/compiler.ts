@@ -10,7 +10,7 @@ import type {
   TemplateIdFn,
 } from '@glimmer/syntax';
 import { LOCAL_TRACE_LOGGING } from '@glimmer/local-debug-flags';
-import { normalize, src } from '@glimmer/syntax';
+import { normalize, normalizeAST, src, unifiedPreprocess } from '@glimmer/syntax';
 import { LOCAL_LOGGER } from '@glimmer/util';
 
 import pass0 from './passes/1-normalization/index';
@@ -160,3 +160,52 @@ export function precompile(
 }
 
 export type { PrecompileOptions };
+
+export interface PhaseTimings {
+  parse: number;
+  normalize: number;
+  pass0: number;
+  pass2: number;
+  stringify: number;
+  total: number;
+}
+
+/**
+ * Exploratory: runs the same pipeline as `precompile()` but times each phase.
+ * Not part of the stable API; exposed for benchmarking so we can see where
+ * time is spent after parse (which is now ~13% of total).
+ */
+export function _precompileJSONWithPhaseTiming(
+  string: Nullable<string>,
+  options: PrecompileOptions | PrecompileOptionsWithLexicalScope = defaultOptions
+): { timings: PhaseTimings } {
+  const t0 = performance.now();
+  const source = new src.Source(string ?? '', options.meta?.moduleName);
+  const ast = unifiedPreprocess(string ?? '', options as PrecompileOptions);
+  const t1 = performance.now();
+
+  const normalizeOptions = { lexicalScope: () => false, ...options };
+  const [astV2] = normalizeAST(source, ast, normalizeOptions);
+  const t2 = performance.now();
+
+  const hir = pass0(source, astV2, options.strictMode ?? false);
+  const t3 = performance.now();
+
+  if (!hir.isOk) throw hir.reason;
+  const wire = pass2(hir.value);
+  const t4 = performance.now();
+
+  JSON.stringify(wire);
+  const t5 = performance.now();
+
+  return {
+    timings: {
+      parse: t1 - t0,
+      normalize: t2 - t1,
+      pass0: t3 - t2,
+      pass2: t4 - t3,
+      stringify: t5 - t4,
+      total: t5 - t0,
+    },
+  };
+}

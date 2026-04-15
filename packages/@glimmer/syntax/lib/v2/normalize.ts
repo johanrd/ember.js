@@ -37,8 +37,20 @@ export function normalize(
   source: Source,
   options: PrecompileOptionsWithLexicalScope = { lexicalScope: () => false }
 ): [ast: ASTv2.Template, locals: string[]] {
-  let ast = preprocess(source, options);
+  const ast = preprocess(source, options);
+  return normalizeAST(source, ast, options);
+}
 
+/**
+ * The ASTv1 → ASTv2 transform, factored out so it can be invoked on an
+ * already-parsed ASTv1 template (e.g. for benchmarking individual
+ * pipeline phases). `normalize()` is `preprocess` + this.
+ */
+export function normalizeAST(
+  source: Source,
+  ast: ASTv1.Template,
+  options: PrecompileOptionsWithLexicalScope = { lexicalScope: () => false }
+): [ast: ASTv2.Template, locals: string[]] {
   let normalizeOptions = {
     strictMode: false,
     ...options,
