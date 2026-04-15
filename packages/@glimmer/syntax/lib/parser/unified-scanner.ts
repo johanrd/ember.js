@@ -885,6 +885,7 @@ export function unifiedPreprocess(input: string, options: PreprocessOptions = {}
       params.push(parseExpr());
       skipWs();
     }
+    skipWs(); // closing ) may be on a new line
     if (cc() !== CH_RPAREN) err("Expected ')'");
     col++;
     pos++;
@@ -1405,9 +1406,10 @@ export function unifiedPreprocess(input: string, options: PreprocessOptions = {}
         if (!bf || bf.kind !== 'block') err('Unexpected {{else ...}}');
         bf.inElse = true;
         bf.elseBody = [];
-        bf.inverseStrip = { open: open.leftStrip, close: false };
         bf.programEnd = open.s; // start of {{else if}} = end of outer program body
         const guts = parseMustacheGuts(open.leftStrip, true, open.s);
+        // inverseStrip.close comes from the ~ in {{else if cond~}}, not hardcoded false
+        bf.inverseStrip = { open: open.leftStrip, close: guts.strip.close };
         const openTagEnd = pos;
         bf.inverseStart = openTagEnd; // right after {{else if}}'s }}
         stack.push({
@@ -1553,6 +1555,9 @@ export function unifiedPreprocess(input: string, options: PreprocessOptions = {}
   // ── Attribute value after '=' ─────────────────────────────────────────────────
   // attrStart: absolute char position of the start of the attr name (for error spans)
   function parseAttrValue(attrStart: number): ASTv1.AttrNode['value'] {
+    // Skip optional whitespace between '=' and the value (e.g. class = "value" or class =\n{{foo}})
+    if (isWhitespace(cc())) skipWs();
+
     const q = cc();
 
     if (q === CH_DQUOTE || q === CH_SQUOTE) {
@@ -1572,7 +1577,14 @@ export function unifiedPreprocess(input: string, options: PreprocessOptions = {}
       };
 
       while (pos < len && cc() !== q) {
-        if (sw('{{')) {
+        if (cc() === CH_BACKSLASH && sw('{{', 1)) {
+          // \{{ inside quoted attr value — emit {{ as literal text (skip the backslash).
+          col++;
+          pos++; // skip backslash
+          tbuf += '{{';
+          col += 2;
+          pos += 2; // skip {{ as literal text
+        } else if (sw('{{')) {
           flushText();
           const mo = classifyOpen();
           if (mo.kind === 'comment') {
@@ -1651,9 +1663,6 @@ export function unifiedPreprocess(input: string, options: PreprocessOptions = {}
         loc: sp(oq, pos),
       });
     }
-
-    // Skip whitespace between '=' and unquoted value (e.g. class=\n{{foo}})
-    if (isWhitespace(cc())) skipWs();
 
     if (sw('{{')) {
       // Check for comment in beforeAttributeValue state
@@ -2411,62 +2420,135 @@ export function unifiedPreprocess(input: string, options: PreprocessOptions = {}
   }
 
   // ── Text scanning ─────────────────────────────────────────────────────────────
+  //
+  // Handlebars backslash-escape rules (matching Jison's lexer behaviour exactly):
+  //
+  //   k = number of consecutive backslashes immediately before {{
+  //
+  //   k=0: plain mustache — outer loop calls parseHbsNode
+  //   k=1: escape — backslash is consumed, {{content}} becomes literal text.
+  //         Jison's "emu" state then merges the escaped content with the following
+  //         text (until the next {{, \{{, or \\{{) into ONE ContentStatement.
+  //         We emit the text-before-\ as a SEPARATE ContentStatement first.
+  //   k≥2: real mustache — (k-1) backslashes are emitted as literal text, the
+  //         last backslash is discarded, and {{ is left for parseHbsNode.
+  //
+  // Examples (k=3 follows the same "real mustache" path as k=2):
+  //   \{{x}}   → ContentStatement("{{x}}" merged with following text)
+  //   \\{{x}}  → ContentStatement("\") + MustacheStatement(x)
+  //   \\\{{x}} → ContentStatement("\\") + MustacheStatement(x)
+  function emitText(chars: string, s: number, e: number): void {
+    if (chars.length === 0) return;
+    if (!codemod && chars.includes('&')) {
+      chars = chars.replace(/&([^;\s<>&]{1,20});/g, (_, name: string) => decodeHtmlEntity(name));
+    }
+    append(b.text({ chars, loc: sp(s, e) }));
+  }
+
   function scanTextNode(): boolean {
     if (pos >= len) return false;
     const s = pos;
 
-    // Find next delimiter
-    let nlt = input.indexOf('<', pos);
-    if (nlt === -1) nlt = len;
-    let nmu = input.indexOf('{{', pos);
-    if (nmu === -1) nmu = len;
+    const nlt = input.indexOf('<', pos);
+    const nltPos = nlt === -1 ? len : nlt;
+    const nmu = input.indexOf('{{', pos);
+    const nmuPos = nmu === -1 ? len : nmu;
+    const hardLimit = Math.min(nltPos, nmuPos);
 
-    let text = '',
-      seg = pos;
-    let limit = Math.min(nlt, nmu);
+    if (hardLimit <= pos) return false;
 
-    // Scan for escaped mustaches within the window
-    let sf = pos;
-    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
-    while (true) {
-      const mi = input.indexOf('{{', sf);
-      if (mi === -1 || mi >= limit) {
-        text += input.substring(seg, limit);
+    if (nmuPos > nltPos || nmuPos >= len) {
+      // No {{ before < (or no {{): emit text up to <
+      emitText(input.substring(pos, nltPos), s, nltPos);
+      advanceTo(nltPos);
+      return true;
+    }
+
+    // {{ found before <. Count consecutive backslashes before {{ from current pos.
+    let k = 0;
+    while (nmuPos - k - 1 >= pos && input.charCodeAt(nmuPos - k - 1) === CH_BACKSLASH) {
+      k++;
+    }
+
+    if (k === 0) {
+      // Plain {{ — emit text before it, outer loop handles {{
+      const textBefore = input.substring(pos, nmuPos);
+      if (textBefore.length === 0) return false;
+      emitText(textBefore, s, nmuPos);
+      advanceTo(nmuPos);
+      return true;
+    }
+
+    if (k >= 2) {
+      // Real mustache: emit text + (k-1) backslashes, skip the last backslash.
+      // input.substring(pos, nmuPos-1) = plain text + (k-1) backslashes
+      // (last backslash at nmuPos-1 is the one stripped by Jison's lexer).
+      emitText(input.substring(pos, nmuPos - 1), s, nmuPos - 1);
+      advanceTo(nmuPos); // skip last backslash; outer loop sees {{ at pos
+      return true;
+    }
+
+    // k === 1: escape sequence.
+    // ContentStatement 1 — text before the backslash (may be absent).
+    const backslashPos = nmuPos - 1;
+    if (backslashPos > pos) {
+      emitText(input.substring(pos, backslashPos), s, backslashPos);
+    }
+    // Skip the backslash; pos is now at {{.
+    advanceTo(nmuPos);
+
+    // ContentStatement 2 — {{content}} merged with following text (Jison emu state).
+    const cs2Start = pos; // = nmuPos
+    let chars2 = '';
+
+    // Read {{content}}
+    const closePos = input.indexOf('}}', pos + 2);
+    if (closePos !== -1 && closePos < nltPos) {
+      chars2 = input.substring(pos, closePos + 2);
+      advanceTo(closePos + 2);
+    } else {
+      // No closing }} before < — treat everything up to < as literal text.
+      chars2 = input.substring(pos, nltPos);
+      advanceTo(nltPos);
+      if (chars2.length > 0) emitText(chars2, cs2Start, pos);
+      return true;
+    }
+
+    // Emu-merge: keep accumulating text until we hit <, {{, \{{, or \\{{.
+    // (Jison's emu lookahead stops at "{{", "\{{", "\\{{".)
+    while (pos < len) {
+      const nlt2 = input.indexOf('<', pos);
+      const nltPos2 = nlt2 === -1 ? len : nlt2;
+      const nmu2 = input.indexOf('{{', pos);
+      const nmuPos2 = nmu2 === -1 ? len : nmu2;
+
+      if (nltPos2 <= nmuPos2) {
+        // < comes first: add text up to < and stop.
+        if (nltPos2 > pos) {
+          chars2 += input.substring(pos, nltPos2);
+          advanceTo(nltPos2);
+        }
         break;
       }
-      if (mi > 0 && input.charCodeAt(mi - 1) === CH_BACKSLASH) {
-        if (mi > 1 && input.charCodeAt(mi - 2) === CH_BACKSLASH) {
-          text += input.substring(seg, mi - 1);
-          limit = mi;
-          break;
-        }
-        text += input.substring(seg, mi - 1) + '{{';
-        const ci = input.indexOf('}}', mi + 2);
-        if (ci === -1) {
-          text += input.substring(mi + 2, limit);
-          break;
-        }
-        text += input.substring(mi + 2, ci);
-        seg = ci + 2;
-        sf = ci + 2;
-        nmu = input.indexOf('{{', sf);
-        if (nmu === -1) nmu = len;
-        limit = Math.min(nlt, nmu);
-        continue;
+
+      if (nmuPos2 <= pos) break; // {{ at current position — stop immediately
+
+      // Count k2 backslashes before the next {{
+      let k2 = 0;
+      while (nmuPos2 - k2 - 1 >= pos && input.charCodeAt(nmuPos2 - k2 - 1) === CH_BACKSLASH) {
+        k2++;
       }
-      text += input.substring(seg, mi);
-      limit = mi;
+
+      // Emu stops just before the backslash sequence (or before {{ when k2=0).
+      const stopPos = nmuPos2 - k2;
+      if (stopPos <= pos) break;
+
+      chars2 += input.substring(pos, stopPos);
+      advanceTo(stopPos);
       break;
     }
 
-    if (!text.length) return false;
-    // Decode HTML entities in text content (mirrors simple-html-tokenizer behavior).
-    // In codemod mode, preserve entities as-is to keep original source positions.
-    if (!codemod && text.includes('&')) {
-      text = text.replace(/&([^;\s<>&]{1,20});/g, (_, name: string) => decodeHtmlEntity(name));
-    }
-    advanceTo(limit);
-    append(b.text({ chars: text, loc: sp(s, pos) }));
+    if (chars2.length > 0) emitText(chars2, cs2Start, pos);
     return true;
   }
 
