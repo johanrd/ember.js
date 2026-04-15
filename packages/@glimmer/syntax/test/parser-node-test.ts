@@ -1107,10 +1107,7 @@ test('text before \\{{ is emitted as a separate TextNode', () => {
 
 test('\\{{ followed by a real mustache stops the emu-state merge', () => {
   // Input file: \{{foo}}{{bar}}  →  TextNode "{{foo}}" + MustacheStatement bar
-  astEqual(
-    '\\{{foo}}{{bar}}',
-    b.template([b.text('{{foo}}'), b.mustache(b.path('bar'))])
-  );
+  astEqual('\\{{foo}}{{bar}}', b.template([b.text('{{foo}}'), b.mustache(b.path('bar'))]));
 });
 
 test('emu-state merge stops at \\{{ (another escape)', () => {
@@ -1118,11 +1115,7 @@ test('emu-state merge stops at \\{{ (another escape)', () => {
   // → TextNode "{{foo}} text " + TextNode "{{bar}} done " + Mustache baz
   astEqual(
     '\\{{foo}} text \\{{bar}} done {{baz}}',
-    b.template([
-      b.text('{{foo}} text '),
-      b.text('{{bar}} done '),
-      b.mustache(b.path('baz')),
-    ])
+    b.template([b.text('{{foo}} text '), b.text('{{bar}} done '), b.mustache(b.path('baz'))])
   );
 });
 
@@ -1162,10 +1155,7 @@ test('full escaped.hbs sequence produces correct AST', () => {
 
 test('\\{{ in element text content produces literal {{', () => {
   // Input file: <div>\{{foo}}</div>
-  astEqual(
-    '<div>\\{{foo}}</div>',
-    b.template([element('div', ['body', b.text('{{foo}}')])])
-  );
+  astEqual('<div>\\{{foo}}</div>', b.template([element('div', ['body', b.text('{{foo}}')])]));
 });
 
 test('\\\\{{ in element text content produces one backslash + real mustache', () => {
@@ -1182,7 +1172,7 @@ test('\\{{ inside a quoted attribute value emits {{ as literal text', () => {
   // Input file: <div title="foo \{{"></div>
   // The attr value TextNode should have chars "foo {{"
   const ast = parse('<div title="foo \\{{"></div>');
-  const el = (ast as ASTv1.Template).body[0] as ASTv1.ElementNode;
+  const el = ast.body[0] as ASTv1.ElementNode;
   const attr = el.attributes[0] as ASTv1.AttrNode;
   const value = attr.value as ASTv1.TextNode;
   QUnit.assert.strictEqual(value.chars, 'foo {{');
