@@ -1233,7 +1233,6 @@ test('\\{{ without closing }} stops at < (HTML element boundary)', () => {
   );
 });
 
-
 // ── Ported from @handlebars/parser spec/ast.js ────────────────────────────────
 
 QUnit.module('[glimmer-syntax] Parser - whitespace control (tilde and standalone)');
