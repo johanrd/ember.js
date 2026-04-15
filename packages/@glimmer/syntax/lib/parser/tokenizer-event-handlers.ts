@@ -16,7 +16,7 @@ import type * as ASTv1 from '../v1/api';
 import type * as HBS from '../v1/handlebars-ast';
 
 import print from '../generation/print';
-import { unifiedPreprocess } from './unified-scanner';
+import { unifiedPreprocess } from './parser';
 import { voidMap } from '../generation/printer';
 import * as src from '../source/api';
 import { generateSyntaxError } from '../syntax-error';
