@@ -195,26 +195,39 @@ interface ScanMeta {
   commentStrip: WeakMap<ASTv1.MustacheCommentStatement, { open: boolean; close: boolean }>;
 }
 
-// ── Apply tilde stripping (~ flags on mustaches and blocks) ────────────────────
+// ── Whitespace stripping (~ and standalone-line) ───────────────────────────────
 //
-// Iterates through body and applies strip.open / strip.close / openStrip / closeStrip
-// whitespace trimming on adjacent TextNode siblings.
+// Two mutation passes applied per body level, in order: tilde first, then
+// standalone. Tilde mutates text siblings of mustaches/blocks/comments that
+// carry `~`/strip flags; standalone mirrors Handlebars' WhitespaceControl and
+// removes whitespace surrounding block/comment nodes that are alone on their
+// line. A single recursion drives both: at each level we apply tilde, filter
+// empty text, apply standalone, filter again, then recurse into block
+// bodies and element children.
 
-function applyTildeStripping(body: ASTv1.Statement[], meta: ScanMeta): ASTv1.Statement[] {
+function isOnlySpacesAndTabs(s: string): boolean {
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i);
+    if (c !== CH_SPACE && c !== CH_TAB) return false;
+  }
+  return true;
+}
+
+function mutateTilde(body: ASTv1.Statement[], meta: ScanMeta): void {
   for (let i = 0; i < body.length; i++) {
     const node = body[i];
     if (!node) continue;
 
     if (node.type === 'MustacheStatement') {
-      const m = node;
-      if (m.strip.open) {
+      if (node.strip.open) {
         const prev = i > 0 ? body[i - 1] : null;
         if (prev?.type === 'TextNode') prev.chars = stripTrailingWS(prev.chars);
       }
-      if (m.strip.close) {
+      if (node.strip.close) {
         const next = i < body.length - 1 ? body[i + 1] : null;
         if (next?.type === 'TextNode') next.chars = stripLeadingWS(next.chars);
       }
+      continue;
     }
 
     if (node.type === 'MustacheCommentStatement') {
@@ -227,92 +240,49 @@ function applyTildeStripping(body: ASTv1.Statement[], meta: ScanMeta): ASTv1.Sta
         const next = i < body.length - 1 ? body[i + 1] : null;
         if (next?.type === 'TextNode') next.chars = stripLeadingWS(next.chars);
       }
+      continue;
     }
 
     if (node.type === 'BlockStatement') {
       const bs = node;
-      // openStrip.open: strip trailing WS from text before this block
       if (bs.openStrip.open) {
         const prev = i > 0 ? body[i - 1] : null;
         if (prev?.type === 'TextNode') prev.chars = stripTrailingWS(prev.chars);
       }
-      // openStrip.close: strip leading WS from first child of program
       if (bs.openStrip.close) {
         const first = bs.program.body[0];
         if (first?.type === 'TextNode') first.chars = stripLeadingWS(first.chars);
       }
-      // inverseStrip.open: strip trailing WS from last child of program (before {{else}})
       if (bs.inverseStrip.open) {
         const prog = bs.program.body;
         const last = prog[prog.length - 1];
         if (last?.type === 'TextNode') last.chars = stripTrailingWS(last.chars);
       }
-      // inverseStrip.close: strip leading WS from first child of inverse (after {{else}})
       if (bs.inverseStrip.close && bs.inverse) {
         const first = bs.inverse.body[0];
         if (first?.type === 'TextNode') first.chars = stripLeadingWS(first.chars);
       }
-      // closeStrip.open: strip trailing WS from last child of program/inverse
       if (bs.closeStrip.open) {
         const prog = bs.inverse ?? bs.program;
         const last = prog.body[prog.body.length - 1];
         if (last?.type === 'TextNode') last.chars = stripTrailingWS(last.chars);
       }
-      // closeStrip.close: strip leading WS from text after this block
       if (bs.closeStrip.close) {
         const next = i < body.length - 1 ? body[i + 1] : null;
         if (next?.type === 'TextNode') next.chars = stripLeadingWS(next.chars);
       }
     }
   }
-
-  // Remove empty text nodes
-  const result = body.filter((n) => !(n.type === 'TextNode' && n.chars === ''));
-
-  // Recurse
-  for (const n of result) {
-    if (n.type === 'BlockStatement') {
-      const bs = n;
-      bs.program.body = applyTildeStripping(bs.program.body, meta);
-      if (bs.inverse) bs.inverse.body = applyTildeStripping(bs.inverse.body, meta);
-    } else if (n.type === 'ElementNode') {
-      n.children = applyTildeStripping(n.children, meta);
-    }
-  }
-
-  return result;
 }
 
-// ── Standalone-line whitespace stripping ───────────────────────────────────────
-//
-// Mirrors Handlebars' WhitespaceControl post-pass.
-// A BlockStatement or MustacheCommentStatement is "standalone" when the text
-// immediately before it (from the last \n to the node) contains only spaces/tabs,
-// AND the text immediately after it (up to and including the first \n) contains
-// only spaces/tabs.  If so, strip that surrounding whitespace and the leading/
-// trailing whitespace inside the block's program/inverse bodies.
-//
-// IMPORTANT: we also check that the char immediately after the opening tag's }}
-// is a newline (openTagEnd check). This prevents incorrectly marking
-// `{{#if foo}}Foo{{/if}}` as standalone when there's content on the same line.
-
-function isOnlySpacesAndTabs(s: string): boolean {
-  for (let i = 0; i < s.length; i++) {
-    const c = s.charCodeAt(i);
-    if (c !== 32 && c !== 9) return false;
-  }
-  return true;
-}
-
-function applyStandaloneStripping(
+function mutateStandalone(
   body: ASTv1.Statement[],
   input: string,
   source: srcApi.Source,
   meta: ScanMeta
-): ASTv1.Statement[] {
+): void {
   const len = input.length;
 
-  // Helper: update the loc of a TextNode after stripping chars from its front
   function trimLocStart(t: ASTv1.TextNode, stripped: number): void {
     if (stripped <= 0) return;
     const s = t.loc.getStart().offset;
@@ -320,7 +290,6 @@ function applyStandaloneStripping(
     if (s !== null && e !== null) t.loc = SourceSpan.forCharPositions(source, s + stripped, e);
   }
 
-  // Helper: update the loc of a TextNode after stripping chars from its end
   function trimLocEnd(t: ASTv1.TextNode, stripped: number): void {
     if (stripped <= 0) return;
     const s = t.loc.getStart().offset;
@@ -345,11 +314,9 @@ function applyStandaloneStripping(
     if (prevNode !== null && prev === null) continue;
     if (nextNode !== null && next === null) continue;
 
-    // Get the openTagEnd position (char right after the opening }})
-    const openTagEnd = node.type === 'BlockStatement' ? meta.blockOpenTagEnd.get(node) : undefined;
-
     // Check that everything from the opening }} to the end of the line is whitespace.
     // This prevents treating `{{#wat}} foo {{/wat}}` as standalone.
+    const openTagEnd = node.type === 'BlockStatement' ? meta.blockOpenTagEnd.get(node) : undefined;
     if (openTagEnd !== undefined) {
       let afterOpenOk = true;
       let p = openTagEnd;
@@ -363,15 +330,13 @@ function applyStandaloneStripping(
       if (!afterOpenOk) continue;
     }
 
-    // prev OK: everything from the last \n (exclusive) to end must be spaces/tabs only
     const prevStr = prev ? prev.chars : '';
     const prevLastNL = prevStr.lastIndexOf('\n');
     const prevAfterNL = prevLastNL === -1 ? prevStr : prevStr.slice(prevLastNL + 1);
     let prevOk = !prev || isOnlySpacesAndTabs(prevAfterNL);
 
-    // If there's no newline in prevStr (or no prevStr at all), scan the source backward
-    // from before the prev text to verify there really is a newline or start-of-input there.
-    // This catches `<ul>{{#each}}` (no prev text node) and `foo {{#each}}` (prev with no newline).
+    // If there's no newline in prevStr, scan the source backward to verify there really is a
+    // newline or start-of-input. Catches `<ul>{{#each}}` and `foo {{#each}}`.
     if (prevOk && prevLastNL === -1) {
       const blockStartOff = node.loc.getStart().offset;
       if (blockStartOff !== null) {
@@ -384,14 +349,12 @@ function applyStandaloneStripping(
       }
     }
 
-    // next OK: everything from start to first \n (exclusive) must be spaces/tabs only
     const nextStr = next ? next.chars : '';
     const nextFirstNL = nextStr.indexOf('\n');
     const nextBeforeNL = nextFirstNL === -1 ? nextStr : nextStr.slice(0, nextFirstNL);
     let nextOk = !next || isOnlySpacesAndTabs(nextBeforeNL);
 
-    // If the next text has no newline AND there's a non-text node right after it,
-    // that node is on the same line as this block's closing tag → not standalone.
+    // A non-text node on the same line as the closing tag means we're not standalone.
     if (nextOk && nextFirstNL === -1 && next !== null) {
       const nodeAfterText = i + 2 < body.length ? body[i + 2] : null;
       if (nodeAfterText !== null) nextOk = false;
@@ -399,48 +362,40 @@ function applyStandaloneStripping(
 
     if (!prevOk || !nextOk) continue;
 
-    // Strip prev: drop everything after the last \n
     if (prev) {
       const origLen = prevStr.length;
       prev.chars = prevLastNL === -1 ? '' : prevStr.slice(0, prevLastNL + 1);
       trimLocEnd(prev, origLen - prev.chars.length);
     }
-
-    // Strip next: drop everything up to and including the first \n
     if (next) {
       const stripped = nextFirstNL === -1 ? nextStr.length : nextFirstNL + 1;
       next.chars = nextFirstNL === -1 ? '' : nextStr.slice(nextFirstNL + 1);
       trimLocStart(next, stripped);
     }
 
-    // Strip first/last children inside the block's program and inverse bodies
     if (node.type === 'BlockStatement') {
       const bs = node;
       for (const prog of [bs.program, bs.inverse]) {
         if (!prog || prog.body.length === 0) continue;
 
-        // Strip leading \n from first child (for the open-tag line being standalone)
         const first = prog.body[0];
         if (first && first.type === 'TextNode') {
-          const t = first;
-          const nl = t.chars.indexOf('\n');
-          const stripped = nl === -1 ? t.chars.length : nl + 1;
-          t.chars = nl === -1 ? '' : t.chars.slice(nl + 1);
-          trimLocStart(t, stripped);
+          const nl = first.chars.indexOf('\n');
+          const stripped = nl === -1 ? first.chars.length : nl + 1;
+          first.chars = nl === -1 ? '' : first.chars.slice(nl + 1);
+          trimLocStart(first, stripped);
         }
 
-        // Strip trailing spaces/tabs from last child (for the close-tag line being standalone)
         const last = prog.body[prog.body.length - 1];
         if (last && last.type === 'TextNode') {
-          const t = last;
-          const nl = t.chars.lastIndexOf('\n');
-          const origLen = t.chars.length;
-          t.chars = nl === -1 ? '' : t.chars.slice(0, nl + 1);
-          trimLocEnd(t, origLen - t.chars.length);
+          const nl = last.chars.lastIndexOf('\n');
+          const origLen = last.chars.length;
+          last.chars = nl === -1 ? '' : last.chars.slice(0, nl + 1);
+          trimLocEnd(last, origLen - last.chars.length);
         }
       }
 
-      // For chained inverses ({{else if}}), also strip the first child of each chained block's program body.
+      // For chained inverses ({{else if}}), also strip the first child of each chained block's body.
       if (bs.inverse?.chained) {
         let inv: ASTv1.Block | null | undefined = bs.inverse;
         while (inv?.chained) {
@@ -448,33 +403,42 @@ function applyStandaloneStripping(
           if (!chainedBlock) break;
           const chainedFirst = chainedBlock.program.body[0];
           if (chainedFirst?.type === 'TextNode') {
-            const t = chainedFirst;
-            const nl = t.chars.indexOf('\n');
-            const stripped = nl === -1 ? t.chars.length : nl + 1;
-            t.chars = nl === -1 ? '' : t.chars.slice(nl + 1);
-            trimLocStart(t, stripped);
+            const nl = chainedFirst.chars.indexOf('\n');
+            const stripped = nl === -1 ? chainedFirst.chars.length : nl + 1;
+            chainedFirst.chars = nl === -1 ? '' : chainedFirst.chars.slice(nl + 1);
+            trimLocStart(chainedFirst, stripped);
           }
           inv = chainedBlock.inverse ?? null;
         }
       }
     }
   }
+}
 
-  // Remove now-empty text nodes
-  const result = body.filter((n) => !(n.type === 'TextNode' && n.chars === ''));
+function filterEmptyText(body: ASTv1.Statement[]): ASTv1.Statement[] {
+  return body.filter((n) => !(n.type === 'TextNode' && n.chars === ''));
+}
 
-  // Recurse into element children and block bodies
+// Walk `body` applying `mutate` at each level, filtering empty text nodes,
+// then recursing into block programs/inverses and element children.
+// The two whitespace passes must run as separate full-tree walks (tilde,
+// then standalone) because standalone at an outer level reads text inside
+// nested blocks' first/last children, and we want that read to observe the
+// already-tilde-stripped state — not an interleaved half-state.
+function walkAndStrip(
+  body: ASTv1.Statement[],
+  mutate: (body: ASTv1.Statement[]) => void
+): ASTv1.Statement[] {
+  mutate(body);
+  const result = filterEmptyText(body);
   for (const n of result) {
     if (n.type === 'BlockStatement') {
-      const bs = n;
-      bs.program.body = applyStandaloneStripping(bs.program.body, input, source, meta);
-      if (bs.inverse)
-        bs.inverse.body = applyStandaloneStripping(bs.inverse.body, input, source, meta);
+      n.program.body = walkAndStrip(n.program.body, mutate);
+      if (n.inverse) n.inverse.body = walkAndStrip(n.inverse.body, mutate);
     } else if (n.type === 'ElementNode') {
-      n.children = applyStandaloneStripping(n.children, input, source, meta);
+      n.children = walkAndStrip(n.children, mutate);
     }
   }
-
   return result;
 }
 
@@ -2526,14 +2490,13 @@ export function unifiedPreprocess(input: string, options: PreprocessOptions = {}
     }
   }
 
-  // Apply tilde whitespace stripping (~ flags)
-  const strippedBody1 = codemod ? rootBody : applyTildeStripping(rootBody, meta);
-
-  // Apply standalone whitespace stripping (mirrors Handlebars' WhitespaceControl)
+  // Tilde stripping (~ flags) and standalone-line stripping run as two
+  // full-tree walks, in that order. See walkAndStrip() comment for why.
   const ignoreStandalone = codemod || (options.parseOptions?.ignoreStandalone ?? false);
+  const afterTilde = codemod ? rootBody : walkAndStrip(rootBody, (b) => mutateTilde(b, meta));
   const strippedBody = ignoreStandalone
-    ? strippedBody1
-    : applyStandaloneStripping(strippedBody1, input, source, meta);
+    ? afterTilde
+    : walkAndStrip(afterTilde, (b) => mutateStandalone(b, input, source, meta));
 
   // Build template
   return b.template({
