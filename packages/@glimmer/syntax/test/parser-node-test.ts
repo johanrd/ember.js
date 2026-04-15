@@ -1190,6 +1190,33 @@ test('double backslash not before {{ is preserved in text', () => {
   astEqual('foo\\\\bar', b.template([b.text('foo\\\\bar')]));
 });
 
+test('triple backslash not before {{ is preserved in text (backslashes.hbs)', () => {
+  // Input file: <p>\\\</p>  →  TextNode "\\\"
+  astEqual('<p>\\\\\\</p>', b.template([element('p', ['body', b.text('\\\\\\')])]));
+});
+
+test('triple backslash + \\\\{{ in element text (backslashes.hbs)', () => {
+  // Input file: <p>\\\ \\{{foo}}</p>  →  TextNode "\\\ \" + Mustache foo
+  astEqual(
+    '<p>\\\\\\ \\\\{{foo}}</p>',
+    b.template([element('p', ['body', b.text('\\\\\\ \\'), b.mustache(b.path('foo'))])])
+  );
+});
+
+test('plain backslash in attribute value is preserved (backslashes-in-attributes.hbs)', () => {
+  // Input file: <p data-attr="backslash \ in an attribute"></p>
+  const ast = parse('<p data-attr="backslash \\\\ in an attribute"></p>');
+  const attr = (ast.body[0] as ASTv1.ElementNode).attributes[0] as ASTv1.AttrNode;
+  QUnit.assert.strictEqual((attr.value as ASTv1.TextNode).chars, 'backslash \\\\ in an attribute');
+});
+
+test('\\{{ in quoted class attribute value (mustache.hbs)', () => {
+  // Input file: <div class=" bar \{{">  →  attr value TextNode " bar {{"
+  const ast = parse('<div class=" bar \\{{"></div>');
+  const attr = (ast.body[0] as ASTv1.ElementNode).attributes[0] as ASTv1.AttrNode;
+  QUnit.assert.strictEqual((attr.value as ASTv1.TextNode).chars, ' bar {{');
+});
+
 // ── Unclosed escape (\\{{ with no }}) ─────────────────────────────────────────
 
 test('\\{{ without closing }} emits {{ and following text up to end', () => {
