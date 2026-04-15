@@ -962,6 +962,36 @@ export function unifiedPreprocess(input: string, options: PreprocessOptions = {}
     e: number;
   }
 
+  function toVarHeads(params: BlockParam[]): ASTv1.VarHead[] {
+    return params.map((bp) => b.var({ name: bp.name, loc: sp(bp.s, bp.e) }));
+  }
+
+  // True when the cursor is still inside an opening tag — not whitespace, not
+  // '>' and not the start of '/>'. Callers that also want to stop at '{{' or
+  // '|' add those checks inline.
+  function isInsideOpenTag(): boolean {
+    return !isWhitespace(cc()) && cc() !== CH_GT && !(cc() === CH_SLASH && cc(1) === CH_GT);
+  }
+
+  // Consume a `{{…}}` (and for blocks, its matching close tag) that uses a
+  // Handlebars feature we don't support, so the resulting SyntaxError spans
+  // the whole construct rather than just `{{`.
+  function rejectUnsupportedMustache(s: number, feature: string): never {
+    const end = input.indexOf('}}', pos);
+    if (end !== -1) advanceTo(end + 2);
+    throw generateSyntaxError(`Handlebars ${feature} are not supported`, sp(s, pos));
+  }
+
+  function rejectUnsupportedBlock(s: number, feature: string): never {
+    const nameEnd = input.indexOf('}}', pos);
+    const name = nameEnd !== -1 ? input.substring(pos, nameEnd).trim() : '';
+    if (nameEnd !== -1) advanceTo(nameEnd + 2);
+    const close = `{{/${name}}}`;
+    const closeIdx = name ? input.indexOf(close, pos) : -1;
+    if (closeIdx !== -1) advanceTo(closeIdx + close.length);
+    throw generateSyntaxError(`Handlebars ${feature} are not supported`, sp(s, pos));
+  }
+
   function parseHbsBlockParams(): BlockParam[] | null {
     skipWs();
     if (!sw('as')) return null;
@@ -1044,7 +1074,6 @@ export function unifiedPreprocess(input: string, options: PreprocessOptions = {}
     rightStrip?: boolean; // for inverse/inverse-chain
     value?: string; // for comment
     unescaped?: boolean; // for & or {{{
-    isDecorator?: boolean;
     commentStrip?: { open: boolean; close: boolean }; // for comments with tilde
   }
 
@@ -1152,30 +1181,14 @@ export function unifiedPreprocess(input: string, options: PreprocessOptions = {}
         col++;
         pos++;
         if (cc() === CH_GT) {
-          // Partial block: {{#> name}}...{{/name}} - consume all and throw
-          col++;
-          pos++; // skip >
-          const pbNameEnd = input.indexOf('}}', pos);
-          const pbName = pbNameEnd !== -1 ? input.substring(pos, pbNameEnd).trim() : '';
-          if (pbNameEnd !== -1) advanceTo(pbNameEnd + 2);
-          // Find and consume matching close block
-          const pbClose = `{{/${pbName}}}`;
-          const pbCloseIdx = pbName ? input.indexOf(pbClose, pos) : -1;
-          if (pbCloseIdx !== -1) advanceTo(pbCloseIdx + pbClose.length);
-          throw generateSyntaxError('Handlebars partial blocks are not supported', sp(s, pos));
-        }
-        const isDecoratorBlock = cc() === CH_STAR;
-        if (isDecoratorBlock) {
           col++;
           pos++;
-          // Decorator block: {{#* name}}...{{/name}} - consume all and throw
-          const dbNameEnd = input.indexOf('}}', pos);
-          const dbName = dbNameEnd !== -1 ? input.substring(pos, dbNameEnd).trim() : '';
-          if (dbNameEnd !== -1) advanceTo(dbNameEnd + 2);
-          const dbClose = `{{/${dbName}}}`;
-          const dbCloseIdx = dbName ? input.indexOf(dbClose, pos) : -1;
-          if (dbCloseIdx !== -1) advanceTo(dbCloseIdx + dbClose.length);
-          throw generateSyntaxError('Handlebars decorator blocks are not supported', sp(s, pos));
+          rejectUnsupportedBlock(s, 'partial blocks');
+        }
+        if (cc() === CH_STAR) {
+          col++;
+          pos++;
+          rejectUnsupportedBlock(s, 'decorator blocks');
         }
         return { kind: 'block', s, leftStrip: ls };
       }
@@ -1184,12 +1197,9 @@ export function unifiedPreprocess(input: string, options: PreprocessOptions = {}
         pos++;
         return { kind: 'close', s, leftStrip: ls };
       case CH_GT: {
-        // Partial: {{> name}} - consume and throw
         col++;
         pos++;
-        const pEnd = input.indexOf('}}', pos);
-        if (pEnd !== -1) advanceTo(pEnd + 2);
-        throw generateSyntaxError('Handlebars partials are not supported', sp(s, pos));
+        rejectUnsupportedMustache(s, 'partials');
       }
       case CH_CARET: {
         col++;
@@ -1225,10 +1235,7 @@ export function unifiedPreprocess(input: string, options: PreprocessOptions = {}
       case CH_STAR: {
         col++;
         pos++;
-        // Decorator: {{* name}} - consume and throw
-        const dEnd = input.indexOf('}}', pos);
-        if (dEnd !== -1) advanceTo(dEnd + 2);
-        throw generateSyntaxError('Handlebars decorators are not supported', sp(s, pos));
+        rejectUnsupportedMustache(s, 'decorators');
       }
       default:
         return { kind: 'mustache', s, leftStrip: ls };
@@ -1251,7 +1258,6 @@ export function unifiedPreprocess(input: string, options: PreprocessOptions = {}
     params: ASTv1.VarHead[];
     comments: ASTv1.MustacheCommentStatement[];
     children: ASTv1.Statement[];
-    inSVG: boolean; // whether this element is inside an SVG context
   }
   interface BlockFrame {
     kind: 'block';
@@ -1458,9 +1464,7 @@ export function unifiedPreprocess(input: string, options: PreprocessOptions = {}
           stack.pop();
 
           // Build block params as VarHeads with correct source locations
-          const bpVars: ASTv1.VarHead[] = bf.blockParams.map((bp) =>
-            b.var({ name: bp.name, loc: sp(bp.s, bp.e) })
-          );
+          const bpVars: ASTv1.VarHead[] = toVarHeads(bf.blockParams);
 
           const closeStrip: ASTv1.StripFlags = { open: open.leftStrip, close: closeRS };
           let defaultBlock: ASTv1.Block,
@@ -1677,21 +1681,11 @@ export function unifiedPreprocess(input: string, options: PreprocessOptions = {}
       }
       const mustacheEnd = pos;
       // Check for awkward follow-up: mustache followed by non-WS non-> content
-      if (
-        pos < len &&
-        !isWhitespace(cc()) &&
-        cc() !== CH_GT &&
-        !(cc() === CH_SLASH && cc(1) === CH_GT)
-      ) {
+      if (pos < len && isInsideOpenTag()) {
         // Scan to get the full attr span (from attrStart to wherever this bad thing ends)
         const badStart = attrStart;
         // Scan until whitespace or >
-        while (
-          pos < len &&
-          !isWhitespace(cc()) &&
-          cc() !== CH_GT &&
-          !(cc() === CH_SLASH && cc(1) === CH_GT)
-        ) {
+        while (pos < len && isInsideOpenTag()) {
           col++;
           pos++;
         }
@@ -1712,13 +1706,7 @@ export function unifiedPreprocess(input: string, options: PreprocessOptions = {}
 
     // Unquoted literal — check for text followed by mustache (awkward)
     const vs = pos;
-    while (
-      pos < len &&
-      !isWhitespace(cc()) &&
-      cc() !== CH_GT &&
-      !(cc() === CH_SLASH && cc(1) === CH_GT) &&
-      !sw('{{')
-    ) {
+    while (pos < len && isInsideOpenTag() && !sw('{{')) {
       col++;
       pos++;
     }
@@ -1729,12 +1717,7 @@ export function unifiedPreprocess(input: string, options: PreprocessOptions = {}
       classifyOpen(); // consume {{...}}
       parseMustacheGuts(false, false, textEnd);
       // Scan any trailing text
-      while (
-        pos < len &&
-        !isWhitespace(cc()) &&
-        cc() !== CH_GT &&
-        !(cc() === CH_SLASH && cc(1) === CH_GT)
-      ) {
+      while (pos < len && isInsideOpenTag()) {
         col++;
         pos++;
       }
@@ -1837,24 +1820,9 @@ export function unifiedPreprocess(input: string, options: PreprocessOptions = {}
       }
 
       // Check for invalid chars immediately after or in place of identifier
-      if (
-        id === '' ||
-        (pos < len &&
-          cc() !== CH_PIPE &&
-          !isWhitespace(cc()) &&
-          cc() !== CH_GT &&
-          !(cc() === CH_SLASH && cc(1) === CH_GT) &&
-          !sw('{{'))
-      ) {
+      if (id === '' || (pos < len && cc() !== CH_PIPE && isInsideOpenTag() && !sw('{{'))) {
         // Collect the bad identifier span
-        while (
-          pos < len &&
-          cc() !== CH_PIPE &&
-          !isWhitespace(cc()) &&
-          cc() !== CH_GT &&
-          !(cc() === CH_SLASH && cc(1) === CH_GT) &&
-          !sw('{{')
-        ) {
+        while (pos < len && cc() !== CH_PIPE && isInsideOpenTag() && !sw('{{')) {
           col++;
           pos++;
         }
@@ -1915,13 +1883,7 @@ export function unifiedPreprocess(input: string, options: PreprocessOptions = {}
       // Extra identifier or other content after closing '|' — span is just the extra content
       advanceTo(scanP);
       const extraStart = pos;
-      while (
-        pos < len &&
-        !isWhitespace(cc()) &&
-        cc() !== CH_GT &&
-        !(cc() === CH_SLASH && cc(1) === CH_GT) &&
-        !sw('{{')
-      ) {
+      while (pos < len && isInsideOpenTag() && !sw('{{')) {
         col++;
         pos++;
       }
@@ -2343,9 +2305,7 @@ export function unifiedPreprocess(input: string, options: PreprocessOptions = {}
             selfClosing: info.selfClosing,
             attributes: info.attrs,
             modifiers: info.modifiers,
-            params: info.params.map((bp: BlockParam) =>
-              b.var({ name: bp.name, loc: sp(bp.s, bp.e) })
-            ),
+            params: toVarHeads(info.params),
             comments: info.comments,
             children: [],
             openTag: openTagSpan,
@@ -2374,9 +2334,7 @@ export function unifiedPreprocess(input: string, options: PreprocessOptions = {}
               selfClosing: false,
               attributes: info.attrs,
               modifiers: info.modifiers,
-              params: info.params.map((bp: BlockParam) =>
-                b.var({ name: bp.name, loc: sp(bp.s, bp.e) })
-              ),
+              params: toVarHeads(info.params),
               comments: info.comments,
               children: rawBody,
               openTag: openTagSpan,
@@ -2386,7 +2344,6 @@ export function unifiedPreprocess(input: string, options: PreprocessOptions = {}
           );
         } else {
           // Push to element stack
-          const inSVG = isInSVGContext() || info.tag.toLowerCase() === 'svg';
           stack.push({
             kind: 'element',
             tag: info.tag,
@@ -2395,12 +2352,9 @@ export function unifiedPreprocess(input: string, options: PreprocessOptions = {}
             openTagEnd: info.openTagEnd,
             attrs: info.attrs,
             modifiers: info.modifiers,
-            params: info.params.map((bp: BlockParam) =>
-              b.var({ name: bp.name, loc: sp(bp.s, bp.e) })
-            ),
+            params: toVarHeads(info.params),
             comments: info.comments,
             children: [],
-            inSVG,
           });
         }
       }
