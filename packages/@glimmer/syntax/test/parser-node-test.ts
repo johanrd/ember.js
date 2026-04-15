@@ -1254,13 +1254,13 @@ test('parses a string literal mustache', (assert) => {
 test('parses a false boolean literal mustache', (assert) => {
   const ast = parse('{{false}}');
   const m = ast.body[0] as ASTv1.MustacheStatement;
-  assert.strictEqual((m.path as ASTv1.BooleanLiteral).value, false);
+  assert.false((m.path as ASTv1.BooleanLiteral).value);
 });
 
 test('parses a true boolean literal mustache', (assert) => {
   const ast = parse('{{true}}');
   const m = ast.body[0] as ASTv1.MustacheStatement;
-  assert.strictEqual((m.path as ASTv1.BooleanLiteral).value, true);
+  assert.true((m.path as ASTv1.BooleanLiteral).value);
 });
 
 test('parses a simple path mustache', (assert) => {
@@ -1360,13 +1360,13 @@ test('parses mustache with a number param', (assert) => {
 test('parses mustache with a true boolean param', (assert) => {
   const ast = parse('{{foo true}}');
   const m = ast.body[0] as ASTv1.MustacheStatement;
-  assert.strictEqual((m.params[0] as ASTv1.BooleanLiteral).value, true);
+  assert.true((m.params[0] as ASTv1.BooleanLiteral).value);
 });
 
 test('parses mustache with a false boolean param', (assert) => {
   const ast = parse('{{foo false}}');
   const m = ast.body[0] as ASTv1.MustacheStatement;
-  assert.strictEqual((m.params[0] as ASTv1.BooleanLiteral).value, false);
+  assert.false((m.params[0] as ASTv1.BooleanLiteral).value);
 });
 
 test('parses {{undefined}} as UndefinedLiteral mustache', (assert) => {
@@ -1384,8 +1384,8 @@ test('parses {{null}} as NullLiteral mustache', (assert) => {
 test('parses mustache with undefined and null params', (assert) => {
   const ast = parse('{{foo undefined null}}');
   const m = ast.body[0] as ASTv1.MustacheStatement;
-  assert.strictEqual(m.params[0]!.type, 'UndefinedLiteral');
-  assert.strictEqual(m.params[1]!.type, 'NullLiteral');
+  assert.strictEqual(m.params[0]?.type, 'UndefinedLiteral');
+  assert.strictEqual(m.params[1]?.type, 'NullLiteral');
 });
 
 test('parses mustache with @data param', (assert) => {
@@ -1399,7 +1399,7 @@ test('parses mustache with @data param', (assert) => {
 test('parses hash with a path value', (assert) => {
   const ast = parse('{{foo bar=baz}}');
   const m = ast.body[0] as ASTv1.MustacheStatement;
-  const pair = m.hash.pairs[0]!;
+  const pair = m.hash.pairs[0] as ASTv1.HashPair;
   assert.strictEqual(pair.key, 'bar');
   assert.strictEqual((pair.value as ASTv1.PathExpression).original, 'baz');
 });
@@ -1407,59 +1407,66 @@ test('parses hash with a path value', (assert) => {
 test('parses hash with a number value', (assert) => {
   const ast = parse('{{foo bar=1}}');
   const m = ast.body[0] as ASTv1.MustacheStatement;
-  const pair = m.hash.pairs[0]!;
+  const pair = m.hash.pairs[0] as ASTv1.HashPair;
   assert.strictEqual((pair.value as ASTv1.NumberLiteral).value, 1);
 });
 
 test('parses hash with a true boolean value', (assert) => {
   const ast = parse('{{foo bar=true}}');
   const m = ast.body[0] as ASTv1.MustacheStatement;
-  const pair = m.hash.pairs[0]!;
-  assert.strictEqual((pair.value as ASTv1.BooleanLiteral).value, true);
+  const pair = m.hash.pairs[0] as ASTv1.HashPair;
+  assert.true((pair.value as ASTv1.BooleanLiteral).value);
 });
 
 test('parses hash with a false boolean value', (assert) => {
   const ast = parse('{{foo bar=false}}');
   const m = ast.body[0] as ASTv1.MustacheStatement;
-  const pair = m.hash.pairs[0]!;
-  assert.strictEqual((pair.value as ASTv1.BooleanLiteral).value, false);
+  const pair = m.hash.pairs[0] as ASTv1.HashPair;
+  assert.false((pair.value as ASTv1.BooleanLiteral).value);
 });
 
 test('parses hash with a @data value', (assert) => {
   const ast = parse('{{foo bar=@baz}}');
   const m = ast.body[0] as ASTv1.MustacheStatement;
-  const pair = m.hash.pairs[0]!;
+  const pair = m.hash.pairs[0] as ASTv1.HashPair;
   assert.strictEqual((pair.value as ASTv1.PathExpression).original, '@baz');
 });
 
 test('parses hash with multiple pairs', (assert) => {
   const ast = parse('{{foo bar=baz bat=bam}}');
   const m = ast.body[0] as ASTv1.MustacheStatement;
-  assert.strictEqual(m.hash.pairs[0]!.key, 'bar');
-  assert.strictEqual((m.hash.pairs[0]!.value as ASTv1.PathExpression).original, 'baz');
-  assert.strictEqual(m.hash.pairs[1]!.key, 'bat');
-  assert.strictEqual((m.hash.pairs[1]!.value as ASTv1.PathExpression).original, 'bam');
+  const pair0 = m.hash.pairs[0] as ASTv1.HashPair;
+  const pair1 = m.hash.pairs[1] as ASTv1.HashPair;
+  assert.strictEqual(pair0.key, 'bar');
+  assert.strictEqual((pair0.value as ASTv1.PathExpression).original, 'baz');
+  assert.strictEqual(pair1.key, 'bat');
+  assert.strictEqual((pair1.value as ASTv1.PathExpression).original, 'bam');
 });
 
 test('parses hash with path and string values', (assert) => {
   const ast = parse('{{foo bar=baz bat="bam"}}');
   const m = ast.body[0] as ASTv1.MustacheStatement;
-  assert.strictEqual((m.hash.pairs[0]!.value as ASTv1.PathExpression).original, 'baz');
-  assert.strictEqual((m.hash.pairs[1]!.value as ASTv1.StringLiteral).value, 'bam');
+  const pair0 = m.hash.pairs[0] as ASTv1.HashPair;
+  const pair1 = m.hash.pairs[1] as ASTv1.HashPair;
+  assert.strictEqual((pair0.value as ASTv1.PathExpression).original, 'baz');
+  assert.strictEqual((pair1.value as ASTv1.StringLiteral).value, 'bam');
 });
 
 test('parses hash with single-quoted string value', (assert) => {
   const ast = parse("{{foo bat='bam'}}");
   const m = ast.body[0] as ASTv1.MustacheStatement;
-  assert.strictEqual((m.hash.pairs[0]!.value as ASTv1.StringLiteral).value, 'bam');
+  const pair = m.hash.pairs[0] as ASTv1.HashPair;
+  assert.strictEqual((pair.value as ASTv1.StringLiteral).value, 'bam');
 });
 
 test('parses mustache with positional param and hash', (assert) => {
   const ast = parse('{{foo omg bar=baz bat="bam"}}');
   const m = ast.body[0] as ASTv1.MustacheStatement;
+  const pair0 = m.hash.pairs[0] as ASTv1.HashPair;
+  const pair1 = m.hash.pairs[1] as ASTv1.HashPair;
   assert.strictEqual((m.params[0] as ASTv1.PathExpression).original, 'omg');
-  assert.strictEqual((m.hash.pairs[0]!.value as ASTv1.PathExpression).original, 'baz');
-  assert.strictEqual((m.hash.pairs[1]!.value as ASTv1.StringLiteral).value, 'bam');
+  assert.strictEqual((pair0.value as ASTv1.PathExpression).original, 'baz');
+  assert.strictEqual((pair1.value as ASTv1.StringLiteral).value, 'bam');
 });
 
 // ── Text content followed by mustache ─────────────────────────────────────────
@@ -1515,7 +1522,8 @@ test('parses block with ^ inverse section', (assert) => {
   assert.strictEqual((block.path as ASTv1.PathExpression).original, 'foo');
   assert.strictEqual((block.program.body[0] as ASTv1.TextNode).chars, ' bar ');
   assert.notStrictEqual(block.inverse, null);
-  assert.strictEqual((block.inverse!.body[0] as ASTv1.TextNode).chars, ' baz ');
+  const inverse = block.inverse as ASTv1.Block;
+  assert.strictEqual((inverse.body[0] as ASTv1.TextNode).chars, ' baz ');
 });
 
 test('parses block with {{else}} inverse section', (assert) => {
@@ -1523,7 +1531,8 @@ test('parses block with {{else}} inverse section', (assert) => {
   const block = ast.body[0] as ASTv1.BlockStatement;
   assert.strictEqual((block.program.body[0] as ASTv1.TextNode).chars, ' bar ');
   assert.notStrictEqual(block.inverse, null);
-  assert.strictEqual((block.inverse!.body[0] as ASTv1.TextNode).chars, ' baz ');
+  const inverse = block.inverse as ASTv1.Block;
+  assert.strictEqual((inverse.body[0] as ASTv1.TextNode).chars, ' baz ');
 });
 
 test('parses block with chained else (multiple inverse sections)', (assert) => {
@@ -1532,11 +1541,13 @@ test('parses block with chained else (multiple inverse sections)', (assert) => {
   assert.strictEqual((block.program.body[0] as ASTv1.TextNode).chars, ' bar ');
   // The chained else creates a nested block in the inverse
   assert.notStrictEqual(block.inverse, null);
-  const innerBlock = block.inverse!.body[0] as ASTv1.BlockStatement;
+  const inverse = block.inverse as ASTv1.Block;
+  const innerBlock = inverse.body[0] as ASTv1.BlockStatement;
   assert.strictEqual(innerBlock.type, 'BlockStatement');
   assert.strictEqual((innerBlock.path as ASTv1.PathExpression).original, 'if');
   assert.notStrictEqual(innerBlock.inverse, null);
-  assert.strictEqual((innerBlock.inverse!.body[0] as ASTv1.TextNode).chars, ' baz ');
+  const innerInverse = innerBlock.inverse as ASTv1.Block;
+  assert.strictEqual((innerInverse.body[0] as ASTv1.TextNode).chars, ' baz ');
 });
 
 test('parses an empty block', (assert) => {
@@ -1552,7 +1563,7 @@ test('parses an empty block with ^ inverse', (assert) => {
   const block = ast.body[0] as ASTv1.BlockStatement;
   assert.strictEqual(block.program.body.length, 0);
   assert.notStrictEqual(block.inverse, null);
-  assert.strictEqual(block.inverse!.body.length, 0);
+  assert.strictEqual((block.inverse as ASTv1.Block).body.length, 0);
 });
 
 test('parses an empty block with {{else}} inverse', (assert) => {
@@ -1560,7 +1571,7 @@ test('parses an empty block with {{else}} inverse', (assert) => {
   const block = ast.body[0] as ASTv1.BlockStatement;
   assert.strictEqual(block.program.body.length, 0);
   assert.notStrictEqual(block.inverse, null);
-  assert.strictEqual(block.inverse!.body.length, 0);
+  assert.strictEqual((block.inverse as ASTv1.Block).body.length, 0);
 });
 
 test('parses a block with block params', (assert) => {
@@ -1578,7 +1589,8 @@ test('parses ^foo standalone inverse block', (assert) => {
   assert.strictEqual((block.path as ASTv1.PathExpression).original, 'foo');
   assert.strictEqual(block.program.body.length, 0);
   assert.notStrictEqual(block.inverse, null);
-  assert.strictEqual((block.inverse!.body[0] as ASTv1.TextNode).chars, 'bar');
+  const inverse = block.inverse as ASTv1.Block;
+  assert.strictEqual((inverse.body[0] as ASTv1.TextNode).chars, 'bar');
 });
 
 // ── Sub-expressions ───────────────────────────────────────────────────────────
@@ -1663,7 +1675,7 @@ test('tilde on mustache strips adjacent whitespace text nodes, which are then re
   // Both text nodes become '' and are removed by the post-pass filter.
   const ast = parse('  {{~comment~}} ');
   assert.strictEqual(ast.body.length, 1, 'empty text nodes are removed after tilde stripping');
-  assert.strictEqual(ast.body[0]!.type, 'MustacheStatement');
+  assert.strictEqual(ast.body[0]?.type, 'MustacheStatement');
 });
 
 test('tilde on block open/close strips program body content', (assert) => {
@@ -1681,8 +1693,12 @@ test('tilde on block open/close strips program body content', (assert) => {
 test('ignoreStandalone: tilde still strips adjacent text nodes', (assert) => {
   // ignoreStandalone only skips standalone-line detection; tilde stripping still runs.
   const ast = parse('  {{~comment~}} ', { parseOptions: { ignoreStandalone: true } });
-  assert.strictEqual(ast.body.length, 1, 'tilde-stripped empty nodes are removed even without standalone detection');
-  assert.strictEqual(ast.body[0]!.type, 'MustacheStatement');
+  assert.strictEqual(
+    ast.body.length,
+    1,
+    'tilde-stripped empty nodes are removed even without standalone detection'
+  );
+  assert.strictEqual(ast.body[0]?.type, 'MustacheStatement');
 });
 
 // ── Standalone block detection ────────────────────────────────────────────────
@@ -1700,7 +1716,7 @@ test('standalone block with else: surrounding nodes removed, inner content stand
   assert.strictEqual(ast.body.length, 1);
   const block = ast.body[0] as ASTv1.BlockStatement;
   assert.strictEqual((block.program.body[0] as ASTv1.TextNode).chars, 'foo\n');
-  assert.strictEqual((block.inverse!.body[0] as ASTv1.TextNode).chars, '  bar \n');
+  assert.strictEqual(((block.inverse as ASTv1.Block).body[0] as ASTv1.TextNode).chars, '  bar \n');
 });
 
 test('standalone block at start of line: program body strips leading newline', (assert) => {
@@ -1715,7 +1731,7 @@ test('standalone block containing mustache: surrounding text is stripped and emp
   const ast = parse('{{#comment}} \n{{foo}}\n {{/comment}}');
   const block = ast.body[0] as ASTv1.BlockStatement;
   assert.strictEqual(block.program.body.length, 2);
-  assert.strictEqual(block.program.body[0]!.type, 'MustacheStatement');
+  assert.strictEqual(block.program.body[0]?.type, 'MustacheStatement');
   assert.strictEqual((block.program.body[1] as ASTv1.TextNode).chars, '\n');
 });
 
@@ -1736,14 +1752,14 @@ test('standalone comment: trailing whitespace node is removed after stripping', 
   // Trailing ' ' is stripped to '' and removed; only the comment node remains.
   const ast = parse('{{! comment }} ');
   assert.strictEqual(ast.body.length, 1);
-  assert.strictEqual(ast.body[0]!.type, 'MustacheCommentStatement');
+  assert.strictEqual(ast.body[0]?.type, 'MustacheCommentStatement');
 });
 
 test('standalone comment: both surrounding text nodes are removed after stripping', (assert) => {
   // '  ' and ' ' both stripped to '' and removed.
   const ast = parse('  {{! comment }} ');
   assert.strictEqual(ast.body.length, 1);
-  assert.strictEqual(ast.body[0]!.type, 'MustacheCommentStatement');
+  assert.strictEqual(ast.body[0]?.type, 'MustacheCommentStatement');
 });
 
 // ── ignoreStandalone: standalone detection is skipped ────────────────────────
