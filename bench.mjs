@@ -1,25 +1,21 @@
 /**
- * 4-way benchmark: main (Jison) vs v2-parser vs unified-1pass vs rust/wasm
+ * 3-way benchmark: main (Jison) vs v2-parser vs unified-1pass
  *
  * Two use cases:
  *   IDE case   — parse-only (preprocess / unifiedPreprocess), the Glint hot-path
  *   Build case — full precompile() pipeline → wire format
  *
- * Run: node bench-4way.mjs
+ * Run: node bench.mjs
  */
 
 const MAIN_COMPILER = '/tmp/ember-main/dist/packages/ember-template-compiler/index.js';
 const MAIN_SYNTAX = '/tmp/ember-main/packages/@glimmer/syntax/dist/es/index.js';
-const RUST_COMPILER = '/tmp/pr-21313/dist/dev/packages/ember-template-compiler/index.js';
-const RUST_SYNTAX = '/tmp/pr-21313/packages/@glimmer/syntax/dist/es/index.js';
 const HERE_COMPILER = `${new URL('.', import.meta.url).pathname}dist/packages/ember-template-compiler/index.js`;
 const HERE_SYNTAX = `${new URL('.', import.meta.url).pathname}packages/@glimmer/syntax/dist/es/index.js`;
 
 const { precompile: compileMain } = await import(MAIN_COMPILER);
-const { precompile: compileRust } = await import(RUST_COMPILER);
 const { precompile: compileV2 } = await import(HERE_COMPILER);
 const { preprocess: parseMain } = await import(MAIN_SYNTAX);
-const { preprocess: parseRust } = await import(RUST_SYNTAX);
 const { preprocess: parseV2, unifiedPreprocess: parseUni } = await import(HERE_SYNTAX);
 
 // ── Templates ──────────────────────────────────────────────────────────────────
@@ -105,26 +101,24 @@ function pct(part, total) {
 
 // ── IDE case: parse-only ───────────────────────────────────────────────────────
 
-console.log('━'.repeat(85));
+console.log('━'.repeat(72));
 console.log('IDE CASE  — parse-only: preprocess() / unifiedPreprocess()  (ms/call, warmed JIT)');
-console.log('━'.repeat(85));
+console.log('━'.repeat(72));
 console.log(
   'template'.padEnd(14) +
     'chars'.padStart(7) +
     '  Jison'.padStart(10) +
     '  v2-parser'.padStart(12) +
-    '  unified-1pass'.padStart(16) +
-    '  rust/wasm'.padStart(12)
+    '  unified-1pass'.padStart(16)
 );
-console.log('─'.repeat(74));
+console.log('─'.repeat(59));
 
 const parseResults = {};
 for (const [name, tpl, N] of templates) {
   const mMs = bench(parseMain, tpl, N);
   const v2Ms = bench(parseV2, tpl, N);
   const uMs = bench(parseUni, tpl, N);
-  const rMs = bench(parseRust, tpl, N);
-  parseResults[name] = { mMs, v2Ms, uMs, rMs, chars: tpl.length };
+  parseResults[name] = { mMs, v2Ms, uMs, chars: tpl.length };
   console.log(
     name.padEnd(14) +
       String(tpl.length).padStart(7) +
@@ -133,8 +127,6 @@ for (const [name, tpl, N] of templates) {
       v2Ms.toFixed(4).padStart(10) +
       'ms' +
       uMs.toFixed(4).padStart(14) +
-      'ms' +
-      rMs.toFixed(4).padStart(10) +
       'ms'
   );
 }
@@ -143,29 +135,27 @@ for (const [name, tpl, N] of templates) {
 // unified column = unified_parse + (precompile_v2 - preprocess_v2)
 // (compile step is identical code in all parsers)
 
-console.log('\n' + '━'.repeat(85));
+console.log('\n' + '━'.repeat(72));
 console.log('BUILD CASE  — full precompile() → wire format  (ms/call, warmed JIT)');
 console.log('  unified-1pass column = unified_parse + (precompile_v2 − preprocess_v2)');
-console.log('━'.repeat(85));
+console.log('━'.repeat(72));
 console.log(
   'template'.padEnd(14) +
     'chars'.padStart(7) +
     '  Jison'.padStart(10) +
     '  v2-parser'.padStart(12) +
-    '  unified-1pass'.padStart(16) +
-    '  rust/wasm'.padStart(12)
+    '  unified-1pass'.padStart(16)
 );
-console.log('─'.repeat(74));
+console.log('─'.repeat(59));
 
 const fullResults = {};
 for (const [name, tpl, N] of templates) {
   const { v2Ms, uMs } = parseResults[name];
   const fullMMs = bench(compileMain, tpl, N);
   const fullV2Ms = bench(compileV2, tpl, N);
-  const fullRMs = bench(compileRust, tpl, N);
   const compileMs = fullV2Ms - v2Ms; // compile step (identical across parsers)
   const fullUMs = uMs + compileMs; // projected unified full pipeline
-  fullResults[name] = { fullMMs, fullV2Ms, fullUMs, fullRMs };
+  fullResults[name] = { fullMMs, fullV2Ms, fullUMs };
   console.log(
     name.padEnd(14) +
       String(tpl.length).padStart(7) +
@@ -174,40 +164,34 @@ for (const [name, tpl, N] of templates) {
       fullV2Ms.toFixed(4).padStart(10) +
       'ms' +
       fullUMs.toFixed(4).padStart(14) +
-      'ms' +
-      fullRMs.toFixed(4).padStart(10) +
       'ms'
   );
 }
 
 // ── Parse vs compile split (medium) ───────────────────────────────────────────
 
-console.log('\n' + '━'.repeat(85));
+console.log('\n' + '━'.repeat(72));
 console.log('PARSE vs COMPILE SPLIT  (medium template)');
-console.log('━'.repeat(85));
+console.log('━'.repeat(72));
 
 const N_SPLIT = 3000;
 const sMainParse = bench(parseMain, medium, N_SPLIT);
 const sV2Parse = bench(parseV2, medium, N_SPLIT);
 const sUniParse = bench(parseUni, medium, N_SPLIT);
-const sRustParse = bench(parseRust, medium, N_SPLIT);
 const sMainFull = bench(compileMain, medium, N_SPLIT);
 const sV2Full = bench(compileV2, medium, N_SPLIT);
-const sRustFull = bench(compileRust, medium, N_SPLIT);
 const sCompile = sV2Full - sV2Parse; // shared compile step
 const sUniFull = sUniParse + sCompile;
 
 console.log(
-  '\n' +
-    '                    Jison                v2-parser            unified-1pass        rust/wasm'
+  '\n' + '                    Jison                v2-parser            unified-1pass'
 );
-console.log('─'.repeat(92));
+console.log('─'.repeat(70));
 console.log(
   'preprocess() only   ' +
     `${sMainParse.toFixed(3)}ms (${pct(sMainParse, sMainFull)})`.padEnd(22) +
     `${sV2Parse.toFixed(3)}ms (${pct(sV2Parse, sV2Full)})`.padEnd(22) +
-    `${sUniParse.toFixed(3)}ms (${pct(sUniParse, sUniFull)})`.padEnd(22) +
-    `${sRustParse.toFixed(3)}ms (${pct(sRustParse, sRustFull)})`
+    `${sUniParse.toFixed(3)}ms (${pct(sUniParse, sUniFull)})`
 );
 console.log(
   'compile only        ' +
@@ -215,24 +199,22 @@ console.log(
       22
     ) +
     `${sCompile.toFixed(3)}ms (${pct(sCompile, sV2Full)})`.padEnd(22) +
-    `${sCompile.toFixed(3)}ms (${pct(sCompile, sUniFull)})`.padEnd(22) +
-    `${(sRustFull - sRustParse).toFixed(3)}ms (${pct(sRustFull - sRustParse, sRustFull)})`
+    `${sCompile.toFixed(3)}ms (${pct(sCompile, sUniFull)})`
 );
 console.log(
   'total               ' +
     `${sMainFull.toFixed(3)}ms`.padEnd(22) +
     `${sV2Full.toFixed(3)}ms`.padEnd(22) +
-    `${sUniFull.toFixed(3)}ms`.padEnd(22) +
-    `${sRustFull.toFixed(3)}ms`
+    `${sUniFull.toFixed(3)}ms`
 );
 
 // ── 500-template build projection ─────────────────────────────────────────────
 
-console.log('\n' + '━'.repeat(85));
+console.log('\n' + '━'.repeat(72));
 console.log('500-TEMPLATE BUILD PROJECTION  (real-world template × 500)');
-console.log('━'.repeat(85));
+console.log('━'.repeat(72));
 
-const { fullMMs: rwM, fullV2Ms: rwV2, fullUMs: rwUni, fullRMs: rwRust } = fullResults['real-world'];
+const { fullMMs: rwM, fullV2Ms: rwV2, fullUMs: rwUni } = fullResults['real-world'];
 const scale = 500;
 console.log(`\n  Jison:          ${(rwM * scale).toFixed(0)}ms  (${rwM.toFixed(3)}ms × ${scale})`);
 console.log(
@@ -240,7 +222,4 @@ console.log(
 );
 console.log(
   `  unified-1pass:  ${(rwUni * scale).toFixed(0)}ms  (${rwUni.toFixed(3)}ms × ${scale})  — ${(rwM / rwUni).toFixed(2)}x vs Jison, ${(rwV2 / rwUni).toFixed(2)}x vs v2`
-);
-console.log(
-  `  rust/wasm:      ${(rwRust * scale).toFixed(0)}ms  (${rwRust.toFixed(3)}ms × ${scale})  — ${(rwM / rwRust).toFixed(2)}x vs Jison`
 );
