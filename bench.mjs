@@ -20,23 +20,30 @@ const { preprocess: parseV2, unifiedPreprocess: parseUni } = await import(HERE_S
 
 // ── Templates ──────────────────────────────────────────────────────────────────
 
-const small = `<div>{{this.title}}</div>`;
-
-const medium = `
-<div class="container">
-  <h1>{{this.title}}</h1>
-  {{#each this.items as |item index|}}
-    <div class="item {{if item.active "active"}}">
-      <span>{{item.name}}</span>
-      <button {{on "click" (fn this.handleClick item)}}>Delete</button>
+// Small: a single component card (~500 chars). Representative of inline
+// components in a route template.
+const small = `
+<article class="card {{if @featured "featured"}}">
+  <h3>{{@title}}</h3>
+  <p>{{@description}}</p>
+  {{#if @actions}}
+    <div class="actions">
+      {{#each @actions as |action|}}
+        <button {{on "click" action.handler}}>{{action.label}}</button>
+      {{/each}}
     </div>
-  {{/each}}
-  {{#if this.showFooter}}
-    <footer>{{this.footerText}}</footer>
   {{/if}}
-</div>`;
+  {{#if @timestamp}}
+    <time class="timestamp">{{@timestamp}}</time>
+  {{/if}}
+  {{#if @author}}
+    <span class="author">by {{@author.name}}</span>
+  {{/if}}
+</article>`;
 
-const realWorld = `
+// Medium: a realistic route-template fragment with several blocks, each, if,
+// helpers, modifiers (~1500 chars).
+const medium = `
 <div class="user-profile {{if this.isPremium "premium"}}">
   <header class="profile-header">
     <img src={{this.avatarUrl}} alt={{this.username}} class="avatar" />
@@ -77,13 +84,19 @@ const realWorld = `
   </section>
 </div>`;
 
-const large = medium.repeat(10);
+// Large (~5000 chars): a bigger route template. Approximated as medium × 3,
+// mirroring how real route templates tend to have several repeated sections.
+const large = medium.repeat(3);
+
+// Extra-large (~25000 chars): representative of the biggest route templates
+// in real apps — e.g. a multi-section dashboard or equipment-list index.
+const extraLarge = medium.repeat(17);
 
 const templates = [
   ['small', small, 5000],
-  ['medium', medium, 2000],
-  ['real-world', realWorld, 1000],
-  ['large (10x)', large, 300],
+  ['medium', medium, 1000],
+  ['large', large, 400],
+  ['extra-large', extraLarge, 80],
 ];
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
@@ -209,10 +222,10 @@ console.log(
 // ── 500-template build projection ─────────────────────────────────────────────
 
 console.log('\n' + '━'.repeat(72));
-console.log('500-TEMPLATE BUILD PROJECTION  (real-world template × 500)');
+console.log('500-TEMPLATE BUILD PROJECTION  (medium template × 500)');
 console.log('━'.repeat(72));
 
-const { fullMMs: rwM, fullV2Ms: rwV2, fullUMs: rwUni } = fullResults['real-world'];
+const { fullMMs: rwM, fullV2Ms: rwV2, fullUMs: rwUni } = fullResults['medium'];
 const scale = 500;
 console.log(`\n  Jison:          ${(rwM * scale).toFixed(0)}ms  (${rwM.toFixed(3)}ms × ${scale})`);
 console.log(

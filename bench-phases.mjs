@@ -16,23 +16,26 @@ const { _precompileJSONWithPhaseTiming: timedCompile } = await import(HERE_COMPI
 
 // ── Templates ──────────────────────────────────────────────────────────────────
 
-const small = `<div>{{this.title}}</div>`;
+const small = `
+<article class="card {{if @featured "featured"}}">
+  <h3>{{@title}}</h3>
+  <p>{{@description}}</p>
+  {{#if @actions}}
+    <div class="actions">
+      {{#each @actions as |action|}}
+        <button {{on "click" action.handler}}>{{action.label}}</button>
+      {{/each}}
+    </div>
+  {{/if}}
+  {{#if @timestamp}}
+    <time class="timestamp">{{@timestamp}}</time>
+  {{/if}}
+  {{#if @author}}
+    <span class="author">by {{@author.name}}</span>
+  {{/if}}
+</article>`;
 
 const medium = `
-<div class="container">
-  <h1>{{this.title}}</h1>
-  {{#each this.items as |item index|}}
-    <div class="item {{if item.active "active"}}">
-      <span>{{item.name}}</span>
-      <button {{on "click" (fn this.handleClick item)}}>Delete</button>
-    </div>
-  {{/each}}
-  {{#if this.showFooter}}
-    <footer>{{this.footerText}}</footer>
-  {{/if}}
-</div>`;
-
-const realWorld = `
 <div class="user-profile {{if this.isPremium "premium"}}">
   <header class="profile-header">
     <img src={{this.avatarUrl}} alt={{this.username}} class="avatar" />
@@ -73,13 +76,14 @@ const realWorld = `
   </section>
 </div>`;
 
-const large = medium.repeat(10);
+const large = medium.repeat(3);
+const extraLarge = medium.repeat(17);
 
 const templates = [
   ['small', small, 2000],
-  ['medium', medium, 800],
-  ['real-world', realWorld, 400],
-  ['large (10x)', large, 120],
+  ['medium', medium, 600],
+  ['large', large, 200],
+  ['extra-large', extraLarge, 40],
 ];
 
 // ── Benchmark ──────────────────────────────────────────────────────────────────
