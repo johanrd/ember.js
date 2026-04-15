@@ -1161,12 +1161,12 @@ export function unifiedPreprocess(input: string, options: PreprocessOptions = {}
         if (cc() === CH_GT) {
           col++;
           pos++;
-          rejectUnsupportedBlock(s, 'partial blocks');
+          return rejectUnsupportedBlock(s, 'partial blocks');
         }
         if (cc() === CH_STAR) {
           col++;
           pos++;
-          rejectUnsupportedBlock(s, 'decorator blocks');
+          return rejectUnsupportedBlock(s, 'decorator blocks');
         }
         return { kind: 'block', s, leftStrip: ls };
       }
@@ -1177,7 +1177,7 @@ export function unifiedPreprocess(input: string, options: PreprocessOptions = {}
       case CH_GT: {
         col++;
         pos++;
-        rejectUnsupportedMustache(s, 'partials');
+        return rejectUnsupportedMustache(s, 'partials');
       }
       case CH_CARET: {
         col++;
@@ -1213,7 +1213,7 @@ export function unifiedPreprocess(input: string, options: PreprocessOptions = {}
       case CH_STAR: {
         col++;
         pos++;
-        rejectUnsupportedMustache(s, 'decorators');
+        return rejectUnsupportedMustache(s, 'decorators');
       }
       default:
         return { kind: 'mustache', s, leftStrip: ls };
