@@ -10,7 +10,7 @@
 
 const MAIN_COMPILER = '/tmp/ember-main/dist/packages/ember-template-compiler/index.js';
 const MAIN_SYNTAX = '/tmp/ember-main/packages/@glimmer/syntax/dist/es/index.js';
-const HERE_COMPILER = `${new URL('.', import.meta.url).pathname}dist/packages/ember-template-compiler/index.js`;
+const HERE_COMPILER = `${new URL('.', import.meta.url).pathname}dist/dev/packages/ember-template-compiler/index.js`;
 const HERE_SYNTAX = `${new URL('.', import.meta.url).pathname}packages/@glimmer/syntax/dist/es/index.js`;
 
 const { precompile: compileMain } = await import(MAIN_COMPILER);
