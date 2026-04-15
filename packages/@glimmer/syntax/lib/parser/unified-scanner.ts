@@ -2,7 +2,7 @@
  * Unified single-pass scanner for Glimmer templates.
  *
  * Replaces the two-pass pipeline:
- *   pass 1 – @handlebars/parser  (HBS structure, treating HTML as opaque ContentStatements)
+ *   pass 1 – Jison-generated parser  (HBS structure, treating HTML as opaque ContentStatements)
  *   pass 2 – simple-html-tokenizer (char-by-char HTML re-tokenization via tokenizePart())
  *
  * This scanner handles both HBS and HTML in ONE left-to-right pass, building
