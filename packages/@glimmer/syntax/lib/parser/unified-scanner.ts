@@ -1489,7 +1489,7 @@ export function unifiedPreprocess(input: string, options: PreprocessOptions = {}
               const chained =
                 bf.elseBody.length === 1 &&
                 firstElse?.type === 'BlockStatement' &&
-                meta.blockIsChained.has(firstElse as ASTv1.BlockStatement);
+                meta.blockIsChained.has(firstElse);
               let inverseLoc: ReturnType<typeof sp>;
               if (chained && bf.elseBody.length > 0) {
                 // For chained inverse, end at the inner chained block's program end
