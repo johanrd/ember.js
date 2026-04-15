@@ -19,6 +19,7 @@ import { generateSyntaxError } from '../syntax-error';
 // ── Character constants ────────────────────────────────────────────────────────
 const CH_TAB = 9; // \t
 const CH_NL = 10; // \n
+const CH_FF = 12; // \f
 const CH_CR = 13; // \r
 const CH_SPACE = 32; //
 const CH_BANG = 33; // !
@@ -35,18 +36,34 @@ const CH_SLASH = 47; // /
 const CH_0 = 48; // 0
 const CH_9 = 57; // 9
 const CH_COLON = 58; // :
+const CH_SEMICOLON = 59; // ;
 const CH_EQ = 61; // =
 const CH_GT = 62; // >
 const CH_AT = 64; // @
+const CH_A = 65; // A
+const CH_X_UPPER = 88; // X
+const CH_Z = 90; // Z
 const CH_LBRACKET = 91; // [
 const CH_BACKSLASH = 92; // \
 const CH_RBRACKET = 93; // ]
 const CH_CARET = 94; // ^
+const CH_UNDERSCORE = 95; // _
 const CH_BACKTICK = 96; // `
+const CH_a = 97; // a
+const CH_x = 120; // x
+const CH_z = 122; // z
 const CH_LBRACE = 123; // {
 const CH_PIPE = 124; // |
 const CH_RBRACE = 125; // }
 const CH_TILDE = 126; // ~
+
+function isAsciiAlpha(c: number): boolean {
+  return (c >= CH_A && c <= CH_Z) || (c >= CH_a && c <= CH_z);
+}
+
+function isAsciiDigit(c: number): boolean {
+  return c >= CH_0 && c <= CH_9;
+}
 
 // ── HTML entity decoding ───────────────────────────────────────────────────────
 
@@ -84,8 +101,7 @@ function decodeHtmlEntity(name: string): string {
       const c0 = name.charCodeAt(0);
       if (c0 === CH_HASH) {
         const c1 = name.charCodeAt(1);
-        if (c1 === 120 || c1 === 88) {
-          // x or X
+        if (c1 === CH_x || c1 === CH_X_UPPER) {
           const n = parseInt(name.slice(2), 16);
           if (!isNaN(n)) return String.fromCharCode(n);
         } else {
@@ -114,7 +130,7 @@ function isIdChar(c: number): boolean {
 }
 
 function isWhitespace(c: number): boolean {
-  return c === CH_SPACE || c === CH_TAB || c === CH_NL || c === CH_CR || c === 12;
+  return c === CH_SPACE || c === CH_TAB || c === CH_NL || c === CH_CR || c === CH_FF;
 }
 
 function isLookahead(c: number): boolean {
@@ -526,7 +542,7 @@ export function unifiedPreprocess(input: string, options: PreprocessOptions = {}
         col = 0;
         pos++;
         if (pos < len && cc() === CH_NL) pos++;
-      } else if (c === CH_SPACE || c === CH_TAB || c === 12) {
+      } else if (c === CH_SPACE || c === CH_TAB || c === CH_FF) {
         col++;
         pos++;
       } else break;
@@ -534,9 +550,7 @@ export function unifiedPreprocess(input: string, options: PreprocessOptions = {}
   }
 
   function err(msg: string): never {
-    throw new Error(
-      `Parse error on line ${line}: ${msg} (near: ${JSON.stringify(input.slice(pos, pos + 20))})`
-    );
+    throw generateSyntaxError(msg, sp(pos, pos));
   }
 
   // ── Low-level scanning ────────────────────────────────────────────────────────
@@ -1617,12 +1631,12 @@ export function unifiedPreprocess(input: string, options: PreprocessOptions = {}
           col++;
           pos++;
           let entity = '';
-          while (pos < len && cc() !== 59 /* ; */ && !isWhitespace(cc()) && entity.length < 20) {
+          while (pos < len && cc() !== CH_SEMICOLON && !isWhitespace(cc()) && entity.length < 20) {
             entity += input[pos];
             col++;
             pos++;
           }
-          if (pos < len && cc() === 59 /* ; */) {
+          if (pos < len && cc() === CH_SEMICOLON) {
             col++;
             pos++;
             tbuf += codemod ? '&' + entity + ';' : decodeHtmlEntity(entity);
@@ -1806,13 +1820,7 @@ export function unifiedPreprocess(input: string, options: PreprocessOptions = {}
       let id = '';
       while (pos < len) {
         const c = cc();
-        if (
-          (c >= 65 && c <= 90) || // A-Z
-          (c >= 97 && c <= 122) || // a-z
-          (c >= 48 && c <= 57) || // 0-9
-          c === 95 || // _
-          c === 45 // -
-        ) {
+        if (isAsciiAlpha(c) || isAsciiDigit(c) || c === CH_UNDERSCORE || c === CH_DASH) {
           id += input[pos];
           col++;
           pos++;
@@ -1926,13 +1934,12 @@ export function unifiedPreprocess(input: string, options: PreprocessOptions = {}
     while (pos < len) {
       const c = cc();
       if (
-        (c >= 65 && c <= 90) ||
-        (c >= 97 && c <= 122) ||
-        (c >= 48 && c <= 57) ||
-        c === 45 ||
-        c === 95 ||
-        c === 46 ||
-        c === 58
+        isAsciiAlpha(c) ||
+        isAsciiDigit(c) ||
+        c === CH_DASH ||
+        c === CH_UNDERSCORE ||
+        c === CH_DOT ||
+        c === CH_COLON
       ) {
         col++;
         pos++;
@@ -1962,7 +1969,7 @@ export function unifiedPreprocess(input: string, options: PreprocessOptions = {}
         );
       }
       const firstCharCode = blockName.charCodeAt(0);
-      if (firstCharCode >= 65 && firstCharCode <= 90) {
+      if (firstCharCode >= CH_A && firstCharCode <= CH_Z) {
         // Starts with uppercase letter — scan open tag, find close tag, span both
         const tagStart = ns - 1;
         // Scan to end of open tag
@@ -2121,12 +2128,11 @@ export function unifiedPreprocess(input: string, options: PreprocessOptions = {}
       while (pos < len) {
         const c = cc();
         if (
-          (c >= 65 && c <= 90) ||
-          (c >= 97 && c <= 122) ||
-          (c >= 48 && c <= 57) ||
-          c === 45 ||
-          c === 95 ||
-          c === 58 ||
+          isAsciiAlpha(c) ||
+          isAsciiDigit(c) ||
+          c === CH_DASH ||
+          c === CH_UNDERSCORE ||
+          c === CH_COLON ||
           c === CH_BANG
         ) {
           attrName += input[pos];
@@ -2287,7 +2293,7 @@ export function unifiedPreprocess(input: string, options: PreprocessOptions = {}
 
     // Start tag <tagname...>  — allow @, :, a-z, A-Z
     const fc = cc(1);
-    if ((fc >= 65 && fc <= 90) || (fc >= 97 && fc <= 122) || fc === CH_AT || fc === CH_COLON) {
+    if (isAsciiAlpha(fc) || fc === CH_AT || fc === CH_COLON) {
       col++;
       pos++; // skip <
       const info = parseStartTag(ltPos);
