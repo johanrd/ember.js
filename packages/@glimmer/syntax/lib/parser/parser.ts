@@ -1,12 +1,9 @@
 /**
- * Unified single-pass scanner for Glimmer templates.
+ * Single-pass parser for Glimmer templates.
  *
- * Replaces the two-pass pipeline:
- *   pass 1 – Jison-generated parser  (HBS structure, treating HTML as opaque ContentStatements)
- *   pass 2 – simple-html-tokenizer (char-by-char HTML re-tokenization via tokenizePart())
- *
- * This scanner handles both HBS and HTML in ONE left-to-right pass, building
- * ASTv1 nodes directly via SourceSpan.forCharPositions() and the `b` builder API.
+ * Handles both Handlebars mustache syntax (`{{...}}`) and HTML in one
+ * left-to-right pass, building ASTv1 nodes directly via
+ * SourceSpan.forCharPositions() and the `b` builder API.
  */
 
 import type { PresentArray } from '@glimmer/interfaces';

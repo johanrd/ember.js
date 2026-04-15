@@ -183,9 +183,7 @@ const sV2Full = bench(compileV2, medium, N_SPLIT);
 const sCompile = sV2Full - sV2Parse; // shared compile step
 const sUniFull = sUniParse + sCompile;
 
-console.log(
-  '\n' + '                    Jison                v2-parser            unified-1pass'
-);
+console.log('\n' + '                    Jison                v2-parser            unified-1pass');
 console.log('─'.repeat(70));
 console.log(
   'preprocess() only   ' +
