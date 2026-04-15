@@ -1084,8 +1084,8 @@ test('number literal as path throws error', (assert) => {
 });
 
 // ── Backslash escape sequences ─────────────────────────────────────────────────
-// These tests document the Jison-matching escape behaviour of unified-scanner.ts.
-// See: packages/@glimmer/syntax/lib/parser/unified-scanner.ts § scanTextNode
+// These tests document the Jison-matching escape behaviour of parser.ts.
+// See: packages/@glimmer/syntax/lib/parser/parser.ts § scanTextNode
 
 QUnit.module('[glimmer-syntax] Parser - backslash escape sequences');
 
