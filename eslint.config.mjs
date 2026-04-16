@@ -30,6 +30,7 @@ export default [
       'packages/@glimmer-workspace/**',
       'tracerbench-testing/',
       'bench.mjs',
+      'bench-phases.mjs',
     ],
   },
   pluginJs.configs.recommended,
