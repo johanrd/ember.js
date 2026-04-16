@@ -453,11 +453,14 @@ export function v2ParseWithoutProcessing(input, options) {
     // will then handle escape detection on the next iteration.
     const idx = input.indexOf('{{', from);
     if (idx === -1) return len;
-    // If preceded by backslash, stop before the backslash
-    if (idx > from && input.charCodeAt(idx - 1) === CH_BACKSLASH) {
-      return idx - 1;
+    // Back up past ALL consecutive backslashes preceding {{ so the next
+    // scanContent call can correctly classify them (e.g. \\{{ as literal
+    // backslash + real mustache, not as another escape).
+    let end = idx;
+    while (end > from && input.charCodeAt(end - 1) === CH_BACKSLASH) {
+      end--;
     }
-    return idx;
+    return end;
   }
 
   // === Mustache classification ===

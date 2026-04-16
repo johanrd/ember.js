@@ -61,6 +61,10 @@ jobs:
         working-directory: prettier-repo
         run: yarn add "@glimmer/syntax@file:${{ github.workspace }}/glimmer-syntax.tgz"
 
+      - name: Update error snapshots (our error messages differ from Jison's verbose format)
+        working-directory: prettier-repo
+        run: yarn jest --updateSnapshot tests/format/handlebars/_errors_/
+
       - name: Run prettier handlebars tests
         working-directory: prettier-repo
         run: yarn jest tests/format/handlebars
