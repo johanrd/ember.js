@@ -10,19 +10,21 @@
  */
 import { v2ParseWithoutProcessing as parse } from './lib/v2-parser.js';
 
-let passed = 0, failed = 0;
+let passed = 0,
+  failed = 0;
 
 function test(tpl, label) {
   try {
     const ast = parse(tpl);
     if (!ast || ast.type !== 'Program') {
       console.log(`FAIL [${label}]: didn't return Program, got ${ast?.type}`);
-      failed++; return;
+      failed++;
+      return;
     }
     passed++;
-  } catch(e) {
-    console.log(`FAIL [${label}]: ${e.message?.substring(0,80)}`);
-    console.log(`  template: ${JSON.stringify(tpl).substring(0,60)}`);
+  } catch (e) {
+    console.log(`FAIL [${label}]: ${e.message?.substring(0, 80)}`);
+    console.log(`  template: ${JSON.stringify(tpl).substring(0, 60)}`);
     failed++;
   }
 }
@@ -31,9 +33,9 @@ function testError(tpl, label) {
   try {
     parse(tpl);
     console.log(`FAIL [${label}]: expected error but parsed OK`);
-    console.log(`  template: ${JSON.stringify(tpl).substring(0,60)}`);
+    console.log(`  template: ${JSON.stringify(tpl).substring(0, 60)}`);
     failed++;
-  } catch(e) {
+  } catch (e) {
     passed++;
   }
 }
@@ -73,7 +75,7 @@ test('{{#foo}}\n\n\n{{/foo}}', 'blank lines in block');
 test('', 'empty');
 test('{{foo}}', 'bare');
 test('{{""}}', 'empty string lit');
-test("{{''}}",  'empty single-quoted');
+test("{{''}}", 'empty single-quoted');
 test('{{0}}', 'zero');
 test('{{-1}}', 'negative');
 test('{{0.0}}', 'zero float');
@@ -237,13 +239,25 @@ test('{{{a}}}{{{b}}}', 'adjacent triple');
 
 // === REAL-WORLD ===
 test('<div class="{{if @isActive "active" "inactive"}}">{{@title}}</div>', 'real: cond class');
-test('{{#each @items as |item index|}}  <li>{{item.name}} ({{index}})</li>\n{{/each}}', 'real: each');
-test('{{#if @showHeader}}\n  <header>{{@title}}</header>\n{{else if @showFooter}}\n  <footer>{{@title}}</footer>\n{{else}}\n  <main>{{@title}}</main>\n{{/if}}', 'real: if/else-if/else');
+test(
+  '{{#each @items as |item index|}}  <li>{{item.name}} ({{index}})</li>\n{{/each}}',
+  'real: each'
+);
+test(
+  '{{#if @showHeader}}\n  <header>{{@title}}</header>\n{{else if @showFooter}}\n  <footer>{{@title}}</footer>\n{{else}}\n  <main>{{@title}}</main>\n{{/if}}',
+  'real: if/else-if/else'
+);
 test('{{yield (hash title=@title body=(component "my-body" model=@model))}}', 'real: yield hash');
 test('{{on "click" (fn @onClick @item)}}', 'real: on+fn');
 test('{{#let (hash a=1 b=2) as |config|}}\n  {{config.a}}\n{{/let}}', 'real: let hash');
-test('<button\n  type="button"\n  class="btn {{if @primary "btn-primary"}}"\n  disabled={{@disabled}}\n  {{on "click" @onClick}}\n>{{yield}}</button>', 'real: button');
-test('{{#each @items as |item|}}\n  {{#if item.isVisible}}\n    <div class="item {{if item.isSelected "selected"}}" {{on "click" (fn @onSelect item)}}>\n      <span>{{item.label}}</span>\n      {{#if item.badge}}\n        <span class="badge">{{item.badge}}</span>\n      {{/if}}\n    </div>\n  {{/if}}\n{{/each}}', 'real: complex list');
+test(
+  '<button\n  type="button"\n  class="btn {{if @primary "btn-primary"}}"\n  disabled={{@disabled}}\n  {{on "click" @onClick}}\n>{{yield}}</button>',
+  'real: button'
+);
+test(
+  '{{#each @items as |item|}}\n  {{#if item.isVisible}}\n    <div class="item {{if item.isSelected "selected"}}" {{on "click" (fn @onSelect item)}}>\n      <span>{{item.label}}</span>\n      {{#if item.badge}}\n        <span class="badge">{{item.badge}}</span>\n      {{/if}}\n    </div>\n  {{/if}}\n{{/each}}',
+  'real: complex list'
+);
 test('{{@model.user.profile.avatar.url}}', 'real: deep access');
 test('{{t "some.translation.key" count=@items.length}}', 'real: translation');
 test('{{format-date @date format="YYYY-MM-DD"}}', 'real: format');

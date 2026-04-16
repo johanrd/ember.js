@@ -10,12 +10,13 @@
 
 For a realistic 1400-char component template (~0.79ms total):
 
-| Phase | Time | % of total |
-|-------|------|-----------|
-| Jison LALR(1) parser (`@handlebars/parser`) | 0.40ms | 50% |
-| Glimmer conversion (`simple-html-tokenizer` + AST build) | 0.39ms | 50% |
+| Phase                                                    | Time   | % of total |
+| -------------------------------------------------------- | ------ | ---------- |
+| Jison LALR(1) parser (`@handlebars/parser`)              | 0.40ms | 50%        |
+| Glimmer conversion (`simple-html-tokenizer` + AST build) | 0.39ms | 50%        |
 
 The Jison parser is slow because:
+
 1. **Regex gauntlet**: Tests up to 40 regexes per token in the `mu` (mustache) state
 2. **String slicing**: `this._input.slice(match[0].length)` on every token creates new strings
 3. **Per-token regex for newlines**: `/(?:\r\n?|\n).*/g` to track line numbers
@@ -23,13 +24,13 @@ The Jison parser is slow because:
 
 ### What is NOT a bottleneck
 
-| Suspected hotspot | Actual cost | Verdict |
-|---|---|---|
-| `charPosFor()` line scanning | 0.19µs/call | Lazy, cached — negligible |
-| `SourceSpan.forHbsLoc()` | 0.1µs/span | Fast enough |
-| `match()` dispatch in span.ts | µs-level | Compiled at init time |
-| Parser constructor `string.split()` | 1.9µs | Negligible |
-| WhitespaceControl pass | <0.02ms | Nearly free |
+| Suspected hotspot                   | Actual cost | Verdict                   |
+| ----------------------------------- | ----------- | ------------------------- |
+| `charPosFor()` line scanning        | 0.19µs/call | Lazy, cached — negligible |
+| `SourceSpan.forHbsLoc()`            | 0.1µs/span  | Fast enough               |
+| `match()` dispatch in span.ts       | µs-level    | Compiled at init time     |
+| Parser constructor `string.split()` | 1.9µs       | Negligible                |
+| WhitespaceControl pass              | <0.02ms     | Nearly free               |
 
 ### Optimization: Caching in Glint (consumer-side)
 
@@ -50,20 +51,20 @@ A hand-written parser (`v2-parser.js`, ~800 lines) replaces the 2032-line Jison-
 
 #### HBS parser alone (6-10x faster)
 
-| Template | Jison | v2 | Speedup |
-|----------|------:|---:|--------:|
-| small (25 chars) | 0.010ms | 0.002ms | **6.1x** |
-| medium (352 chars) | 0.089ms | 0.012ms | **7.7x** |
+| Template           |   Jison |      v2 |   Speedup |
+| ------------------ | ------: | ------: | --------: |
+| small (25 chars)   | 0.010ms | 0.002ms |  **6.1x** |
+| medium (352 chars) | 0.089ms | 0.012ms |  **7.7x** |
 | large (3520 chars) | 0.844ms | 0.080ms | **10.6x** |
 
 #### End-to-end `preprocess()` (2-3x faster)
 
-| Template | Before | After | Speedup |
-|----------|-------:|------:|--------:|
-| small (25 chars) | 0.025ms | 0.011ms | **2.3x** |
-| medium (352 chars) | 0.190ms | 0.090ms | **2.1x** |
+| Template               |  Before |   After |  Speedup |
+| ---------------------- | ------: | ------: | -------: |
+| small (25 chars)       | 0.025ms | 0.011ms | **2.3x** |
+| medium (352 chars)     | 0.190ms | 0.090ms | **2.1x** |
 | realistic (1435 chars) | 0.791ms | 0.280ms | **2.8x** |
-| large (3520 chars) | 1.716ms | 0.901ms | **1.9x** |
+| large (3520 chars)     | 1.716ms | 0.901ms | **1.9x** |
 
 The remaining ~50% is Glimmer's `simple-html-tokenizer` + AST conversion, unchanged.
 
