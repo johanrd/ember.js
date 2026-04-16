@@ -12,6 +12,17 @@
  */
 
 import Exception from './exception.js';
+import WhitespaceControl from './whitespace-control.js';
+
+export function parseWithoutProcessing(input, options) {
+  return v2ParseWithoutProcessing(input, options);
+}
+
+export function parse(input, options) {
+  const ast = v2ParseWithoutProcessing(input, options);
+  const strip = new WhitespaceControl(options);
+  return strip.accept(ast);
+}
 
 // Character codes
 const CH_NL = 10; // \n

@@ -28,11 +28,10 @@ export default [
       '**/type-tests/',
       'internal-docs/guides/**',
       'packages/@glimmer-workspace/**',
-      'packages/@handlebars/parser/lib/parser.js',
-      'packages/@handlebars/parser/src/**',
-      'packages/@handlebars/parser/stress-test.mjs',
-      'packages/@handlebars/parser/stress-test-2.mjs',
-      'packages/@handlebars/parser/stress-test-3.mjs',
+      'packages/@glimmer/syntax/lib/parser/v2-parser.js',
+      'packages/@glimmer/syntax/lib/parser/whitespace-control.js',
+      'packages/@glimmer/syntax/lib/parser/visitor.js',
+      'packages/@glimmer/syntax/lib/parser/exception.js',
       'tracerbench-testing/',
       'bench-cli.mjs',
       'bench-compare.mjs',
@@ -193,15 +192,6 @@ export default [
       'no-implicit-coercion': 'off',
       'no-unused-vars': 'off',
       'import/namespace': 'off',
-    },
-  },
-  {
-    files: ['packages/@handlebars/parser/spec/**/*.js'],
-
-    languageOptions: {
-      globals: {
-        ...globals.mocha,
-      },
     },
   },
   {

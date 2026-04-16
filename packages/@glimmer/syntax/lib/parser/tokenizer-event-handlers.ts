@@ -9,7 +9,7 @@ import {
   localAssert,
 } from '@glimmer/debug-util';
 import { assign } from '@glimmer/util';
-import { parse, parseWithoutProcessing } from '@handlebars/parser';
+import { parse, parseWithoutProcessing } from './v2-parser';
 import { EntityParser } from 'simple-html-tokenizer';
 
 import type { EndTag, StartTag } from '../parser';
