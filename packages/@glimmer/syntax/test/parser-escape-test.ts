@@ -134,5 +134,6 @@ test('\\{{ without closing }} stops at < (HTML element boundary)', () => {
 test('escaped literal [foo\\nbar] preserves newline in path segment', () => {
   const ast = parse('{{[foo\nbar]}}');
   const path = (ast.body[0] as ASTv1.MustacheStatement).path as ASTv1.PathExpression;
-  QUnit.assert.strictEqual(path.head.name, 'foo\nbar');
+  QUnit.assert.strictEqual(path.head.type, 'VarHead');
+  QUnit.assert.strictEqual((path.head as ASTv1.VarHead).name, 'foo\nbar');
 });
