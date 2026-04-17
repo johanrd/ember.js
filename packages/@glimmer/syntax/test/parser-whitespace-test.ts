@@ -1,9 +1,9 @@
 import type { ASTv1 } from '@glimmer/syntax';
 import { preprocess as parse } from '@glimmer/syntax';
 
-const { test } = QUnit;
+const { module, test } = QUnit;
 
-QUnit.module('[glimmer-syntax] Parser - whitespace control (tilde and standalone)');
+module('[glimmer-syntax] Parser - whitespace control (tilde and standalone)');
 
 // Tilde (whitespace stripping)
 

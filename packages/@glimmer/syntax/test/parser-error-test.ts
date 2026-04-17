@@ -1,8 +1,8 @@
 import { preprocess as parse } from '@glimmer/syntax';
 
-const { test } = QUnit;
+const { module, test } = QUnit;
 
-QUnit.module('[glimmer-syntax] Parser - parse error regression fixtures');
+module('[glimmer-syntax] Parser - parse error regression fixtures');
 
 // prettier tests/format/handlebars/_errors_/invalid-3.hbs
 test('empty mustache {{}} is a parse error (invalid-3.hbs)', (assert) => {

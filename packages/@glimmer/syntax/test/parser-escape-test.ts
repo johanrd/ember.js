@@ -4,9 +4,9 @@ import { builders as b, preprocess as parse } from '@glimmer/syntax';
 import { element } from './parser-node-test';
 import { astEqual } from './support';
 
-const { test } = QUnit;
+const { module, test } = QUnit;
 
-QUnit.module('[glimmer-syntax] Parser - backslash escape sequences');
+module('[glimmer-syntax] Parser - backslash escape sequences');
 
 // k=1: \{{ → escape. Backslash consumed, {{content}} becomes literal text.
 test('\\{{ produces literal {{ in a TextNode', () => {
