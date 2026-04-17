@@ -14,6 +14,7 @@ export {
   type Syntax,
   type TemplateIdFn,
 } from './lib/parser/tokenizer-event-handlers';
+export { unifiedPreprocess } from './lib/parser/parser';
 export * as src from './lib/source/api';
 export { SourceSlice } from './lib/source/slice';
 export {

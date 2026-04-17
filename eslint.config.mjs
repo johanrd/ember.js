@@ -28,9 +28,8 @@ export default [
       '**/type-tests/',
       'internal-docs/guides/**',
       'packages/@glimmer-workspace/**',
-      'packages/@handlebars/parser/lib/parser.js',
-      'packages/@handlebars/parser/src/**',
       'tracerbench-testing/',
+      'bench.mjs',
     ],
   },
   pluginJs.configs.recommended,
@@ -169,33 +168,6 @@ export default [
     rules: {
       'ember-internal/require-yuidoc-access': 'error',
       'ember-internal/no-const-outside-module-scope': 'error',
-    },
-  },
-  {
-    files: ['packages/@handlebars/**/*.js'],
-
-    languageOptions: {
-      ecmaVersion: 2017,
-      sourceType: 'module',
-    },
-
-    rules: {
-      'ember-internal/require-yuidoc-access': 'off',
-      'ember-internal/no-const-outside-module-scope': 'off',
-      'disable-features/disable-async-await': 'off',
-      'disable-features/disable-generator-functions': 'off',
-      'no-implicit-coercion': 'off',
-      'no-unused-vars': 'off',
-      'import/namespace': 'off',
-    },
-  },
-  {
-    files: ['packages/@handlebars/parser/spec/**/*.js'],
-
-    languageOptions: {
-      globals: {
-        ...globals.mocha,
-      },
     },
   },
   {
