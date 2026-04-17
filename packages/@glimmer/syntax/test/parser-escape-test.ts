@@ -128,3 +128,11 @@ test('\\{{ without closing }} stops at < (HTML element boundary)', () => {
     b.template([element('div', ['body', b.text('{{ unclosed')])])
   );
 });
+
+// Escaped literal with newline inside brackets
+
+test('escaped literal [foo\\nbar] preserves newline in path segment', () => {
+  const ast = parse('{{[foo\nbar]}}');
+  const path = (ast.body[0] as ASTv1.MustacheStatement).path as ASTv1.PathExpression;
+  QUnit.assert.strictEqual(path.head.name, 'foo\nbar');
+});
