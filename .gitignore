@@ -1,4 +1,6 @@
 tracerbench-testing/
+build-bench-testing/
+.bench/
 *.bpkg
 *.gem
 *.rbc
