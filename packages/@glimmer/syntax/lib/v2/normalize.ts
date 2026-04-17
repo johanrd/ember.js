@@ -576,8 +576,15 @@ class ElementNormalizer {
     // the head, attributes and modifiers are in the current scope
     let path = this.classifyTag(tagHead, rest, element.loc);
 
-    let attrs = element.attributes.filter((a) => a.name[0] !== '@').map((a) => this.attr(a));
-    let args = element.attributes.filter((a) => a.name[0] === '@').map((a) => this.arg(a));
+    let attrs: ReturnType<typeof this.attr>[] = [];
+    let args: ReturnType<typeof this.arg>[] = [];
+    for (const a of element.attributes) {
+      if (a.name[0] === '@') {
+        args.push(this.arg(a));
+      } else {
+        attrs.push(this.attr(a));
+      }
+    }
 
     let modifiers = element.modifiers.map((m) => this.modifier(m));
 
