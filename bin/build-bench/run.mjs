@@ -21,9 +21,13 @@ import { extname, join, resolve } from 'node:path';
 import { cpus, platform, arch, release } from 'node:os';
 
 import { runColdProd } from './scenarios/cold-prod.mjs';
+import { runColdDev } from './scenarios/cold-dev.mjs';
 
 const REPO_ROOT = fileURLToPath(new URL('../..', import.meta.url));
-const SCENARIOS = { 'cold-prod': runColdProd };
+const SCENARIOS = {
+  'cold-prod': runColdProd,
+  'cold-dev': runColdDev,
+};
 
 function parseArgs(argv) {
   const out = { scenario: 'cold-prod', app: 'benchmark-app', runs: 3, out: null };
@@ -48,10 +52,16 @@ function parseArgs(argv) {
 
 function printHelp() {
   console.log(`Usage: node bin/build-bench/run.mjs [options]
-  --scenario <name>   cold-prod (default)
-  --app <name>        benchmark-app (default), app-template, v2-app-template
+  --scenario <name>   cold-prod (default), cold-dev
+  --app <name>        benchmark-app (default), large-app, app-template, v2-app-template
   --runs <n>          default 3
-  --out <path>        summary JSON output path (default: .bench/<scenario>-<ts>.json)`);
+  --out <path>        summary JSON output path (default: .bench/<scenario>-<ts>.json)
+
+Scenarios:
+  cold-prod  full vite build from clean caches; measures wall + per-plugin
+             attribution + peak RSS.
+  cold-dev   vite dev-server startup time ("ready in Xms") from clean caches.
+             Does not measure on-demand transform cost — see HMR scenarios.`);
 }
 
 async function readNdjson(filePath) {
