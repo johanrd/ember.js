@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "rngSeed": 287645193,
+  "description": "Generation recipe for smoke-tests/large-app. Bump version (and potentially rngSeed) only when intentionally changing the fixture — before/after perf comparisons MUST pin the same seed file and the same generator commit.",
+  "buckets": {
+    "leafComponent":  { "count": 400, "sizeChars": [300, 700] },
+    "midComponent":   { "count": 120, "sizeChars": [2000, 4000] },
+    "route":          { "count": 60,  "sizeChars": [500, 1500] },
+    "controller":     { "count": 60,  "sizeChars": [1500, 3000] },
+    "routeTemplate":  { "count": 60,  "sizeChars": [10000, 20000] },
+    "adminTemplate":  { "count": 25,  "sizeChars": [25000, 45000] },
+    "service":        { "count": 40,  "sizeChars": [1000, 2500] },
+    "helper":         { "count": 60,  "sizeChars": [200, 400] },
+    "modifier":       { "count": 30,  "sizeChars": [300, 500] },
+    "util":           { "count": 200, "sizeChars": [200, 500] }
+  }
+}

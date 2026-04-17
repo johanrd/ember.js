@@ -1,0 +1,15 @@
+node_modules
+dist
+.vite
+
+# Everything under app/**/generated is produced by scripts/generate.mjs.
+app/components/generated
+app/controllers/generated
+app/helpers/generated
+app/modifiers/generated
+app/routes/generated
+app/services/generated
+app/utils/generated
+
+# Determinism manifest — gitignored; regenerate locally to verify identical output.
+scripts/last-generation.json
