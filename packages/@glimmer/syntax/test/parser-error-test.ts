@@ -82,3 +82,19 @@ test('mustache with @<non-id-char> is a parse error ({{@@}}, {{@=}}, {{@!}})', (
     );
   }
 });
+
+// Jison has a quirk where digit-only segments are rejected as the LAST segment
+// (lexer matches NUMBER before ID) but accepted as middle segments (e.g.
+// {{foo.0.bar}}). Real Ember templates use .0. as array access:
+//   {{@equipmentEdgeList.0.node.profile.modelInfo.manufacturer.name}}
+// The v2-parser uniformly accepts digit segments in all positions, which is
+// more permissive than Jison but doesn't break any real-world templates.
+test('digit path segment as middle segment is accepted ({{foo.0.bar}})', (assert) => {
+  const ast = parse('{{foo.0.bar}}', { meta: { moduleName: 'test-module' } });
+  assert.strictEqual(ast.body[0]?.type, 'MustacheStatement');
+});
+
+test('digit path segment with data path is accepted ({{@list.0.name}})', (assert) => {
+  const ast = parse('{{@list.0.name}}', { meta: { moduleName: 'test-module' } });
+  assert.strictEqual(ast.body[0]?.type, 'MustacheStatement');
+});
