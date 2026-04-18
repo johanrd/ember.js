@@ -191,7 +191,7 @@ function omitRight(body, i, multiple) {
   }
 
   let original = current.value;
-  current.value = current.value.replace(multiple ? /^\s+/ : /^[ \t]*\r?\n?/, '');
+  current.value = multiple ? current.value.trimStart() : current.value.replace(/^[ \t]*\r?\n?/, '');
   current.rightStripped = current.value !== original;
 }
 
@@ -210,7 +210,7 @@ function omitLeft(body, i, multiple) {
 
   // We omit the last node if it's whitespace only and not preceded by a non-content node.
   let original = current.value;
-  current.value = current.value.replace(multiple ? /\s+$/ : /[ \t]+$/, '');
+  current.value = multiple ? current.value.trimEnd() : current.value.replace(/[ \t]+$/, '');
   current.leftStripped = current.value !== original;
   return current.leftStripped;
 }
