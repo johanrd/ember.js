@@ -20,7 +20,8 @@ explicitly requested.
 |---|---|---|---|
 | `perf/build-bench-harness` | PR 1: Vite/Rollup plugin-hook timing wrapper, runner, diff tool, cold-prod scenario | landed (local) | `main` |
 | `perf/build-bench-largeapp` | PR 2: ~1000-file deterministic `smoke-tests/large-app` fixture | landed (local) | `perf/build-bench-harness` |
-| `perf/build-bench-cold-dev` | PR 3: cold-dev scenario (vite dev startup time) + cpuprof analyzer + fs-trace preload | landed (local) | `perf/build-bench-largeapp` |
+| `perf/build-bench-cold-dev` | PR 3: cold-dev scenario (vite dev startup time) + cpuprof analyzer + fs-trace preload + this perf.md | landed (local) | `perf/build-bench-largeapp` |
+| `perf/build-bench-incremental` | PR 4: `incr-template` HMR-latency scenario (WS client to vite HMR socket) | landed (local) | `perf/build-bench-cold-dev` |
 | `perf/largeapp-babel-config-pin` | PR candidate: pin `configFile` + `babelrc: false` in fixture vite.config | landed (local, standalone) | `perf/build-bench-largeapp` |
 | `perf/largeapp-maybe-babel` | PR candidate: `maybeBabel` pattern (from @NullVoxPopuli / AuditBoard) — skip babel on files that don't need it | landed (local) | `perf/largeapp-babel-config-pin` |
 
@@ -51,6 +52,11 @@ Everything under `bin/build-bench/` on the `perf/build-bench-cold-dev` branch:
 - **`scenarios/cold-dev.mjs`** — vite dev-server startup ("ready in Xms").
   Invokes vite's binary directly (bypasses `pnpm vite`'s output buffering) and
   strips ANSI color codes before regex-matching the ready line.
+- **`scenarios/incr-template.mjs`** — HMR round-trip latency. Starts vite dev,
+  warms the module graph, opens a WebSocket to the HMR socket (`vite-hmr`
+  subprotocol), rewrites a target file with a bumped comment, waits for the
+  next `update`/`full-reload` message. Reports per-iteration latencies, reload
+  kind, and update counts.
 - **`analyze-cpuprof.mjs`** — post-process a `node --cpu-prof` output. Top-N by
   self-time or total-time, optional `--filter` substring over function/url.
 - **`trace-fs.cjs`** — preload (`NODE_OPTIONS=--require …`) that monkey-patches
@@ -130,6 +136,43 @@ Scoring legend (1–10, higher = better):
   get surprising behavior if they added a new such import and forgot to
   update the list).
 
+### HMR investigation (large-app)
+
+Data from `incr-template` scenario, 10 iterations each, 250ms pause between.
+
+| target file | touch → update latency (median) | kinds | update count/iter |
+|---|---:|---|---:|
+| `leafComponent-0.gjs` | 113 ms | all full-reload | 1 |
+| `controller-0.ts` | 114 ms | all full-reload | 1 |
+
+**The headline isn't the latency** — it's the reload kind. **100% of Ember
+source-file edits trigger `full-reload`, not granular HMR.** Every edit forces
+the whole page to reload; component state is not preserved; Vite's HMR core
+benefit isn't being realized.
+
+Root cause: the compiled template output from
+`babel-plugin-ember-template-compilation` doesn't declare
+`import.meta.hot.accept()` boundaries. When any module in the graph changes and
+no ancestor accepts hot updates, Vite falls back to a full reload.
+
+- **Measurability**: **8/10**. Latency numbers stable (noise ±25ms off the
+  ~100ms debounce floor). Reload-kind distribution is binary and deterministic.
+- **Improvement**: **N/A for latency** (near the chokidar floor, not easily
+  moved). **But potentially huge for dev-UX** if granular HMR could be wired
+  up — preserving component state across edits is a category-of-one win, not a
+  wall-clock one.
+- **Complexity**: **2/10** for the fix. This is an upstream concern in
+  `babel-plugin-ember-template-compilation` and/or `@embroider/vite`. Ember
+  Glimmer components would need a runtime path for accepting their new
+  compiled template on hot update. Non-trivial — probably not a small PR.
+
+Other observations:
+- After a `full-reload`, Vite's server assumes the browser reloaded the page.
+  A non-browser client (like this scenario) must re-fetch the target URL,
+  otherwise the next edit fires no event. The scenario handles this with a
+  post-iteration `fetch`.
+- No cache-invalidation bugs: each event reports exactly 1 file.
+
 ### Rejected hypotheses (don't revisit without new evidence)
 
 #### `visitNode` double-`JSON.stringify` in `packages/@glimmer/syntax/lib/traversal/traverse.ts:116`
@@ -159,17 +202,13 @@ Scoring legend (1–10, higher = better):
 
 ## Open leads (next to investigate)
 
-### Incremental scenarios (HMR)
-- **Measurability**: **7/10** (est). HMR latency is debounce-floor-limited
-  (~100ms chokidar), so small deltas hide. Need high run counts.
-- **Improvement**: unknown. Incremental rebuilds dominate dev-time user
-  experience; even modest per-change savings compound across a day of edits.
-  If any plugin re-runs on >1 file after a one-file touch, that's a
-  cache-invalidation bug — worth catching.
-- **Complexity**: **5/10**. WS client to subscribe to vite HMR events, fs
-  `utimes` to touch a file, measure time-to-update. One-off scaffolding,
-  nothing deeply tricky.
-- Status: about to tackle.
+### Granular HMR for Ember templates (NEW — investigate upstream)
+Moved from "open leads" to "next-steps" after the HMR data landed. See
+"HMR investigation (large-app)" above.
+- Potential dev-UX win: preserve state across edits, no more full reload.
+- Belongs in `babel-plugin-ember-template-compilation` (emit hot-accept
+  wrapper) and/or Ember runtime (accept the hot-updated template module).
+- Not a wall-clock win — a category-change in dev UX.
 
 ### Repeated `realpathSync` on `@babel/runtime/package.json` (1,211× on large-app)
 - **Measurability**: **8/10** (fs-trace is directly attributable).
@@ -219,6 +258,12 @@ Scoring legend (1–10, higher = better):
   "babel-required imports" is Ember-specific, opt-in via a named helper is
   fine but needs careful wording so consumers understand the filter
   semantics.
+
+### Upstream *discussion* worth starting
+- **HMR boundaries for Ember templates**. Current behaviour (100%
+  full-reload on any .gjs/.ts edit) is a dev-UX gap. Not a quick PR — likely
+  needs runtime + template-compilation co-design — but worth raising with
+  the Ember/embroider team. Probably a design-doc or issue first.
 
 ---
 
