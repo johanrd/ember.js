@@ -22,15 +22,24 @@ import { cpus, platform, arch, release } from 'node:os';
 
 import { runColdProd } from './scenarios/cold-prod.mjs';
 import { runColdDev } from './scenarios/cold-dev.mjs';
+import { runIncrTemplate } from './scenarios/incr-template.mjs';
 
 const REPO_ROOT = fileURLToPath(new URL('../..', import.meta.url));
 const SCENARIOS = {
   'cold-prod': runColdProd,
   'cold-dev': runColdDev,
+  'incr-template': runIncrTemplate,
 };
 
 function parseArgs(argv) {
-  const out = { scenario: 'cold-prod', app: 'benchmark-app', runs: 3, out: null };
+  const out = {
+    scenario: 'cold-prod',
+    app: 'benchmark-app',
+    runs: 3,
+    out: null,
+    touchFile: null,
+    iterations: null,
+  };
   for (let i = 2; i < argv.length; i++) {
     const a = argv[i];
     const next = () => argv[++i];
@@ -38,6 +47,8 @@ function parseArgs(argv) {
     else if (a === '--app') out.app = next();
     else if (a === '--runs') out.runs = Number(next());
     else if (a === '--out') out.out = next();
+    else if (a === '--touch-file') out.touchFile = next();
+    else if (a === '--iterations') out.iterations = Number(next());
     else if (a === '--help' || a === '-h') {
       printHelp();
       process.exit(0);
@@ -52,16 +63,22 @@ function parseArgs(argv) {
 
 function printHelp() {
   console.log(`Usage: node bin/build-bench/run.mjs [options]
-  --scenario <name>   cold-prod (default), cold-dev
-  --app <name>        benchmark-app (default), large-app, app-template, v2-app-template
-  --runs <n>          default 3
-  --out <path>        summary JSON output path (default: .bench/<scenario>-<ts>.json)
+  --scenario <name>    cold-prod (default), cold-dev, incr-template
+  --app <name>         benchmark-app (default), large-app, app-template, v2-app-template
+  --runs <n>           default 3
+  --out <path>         summary JSON output path (default: .bench/<scenario>-<ts>.json)
+  --touch-file <path>  incr-template only: absolute path to the file to touch.
+                       Default: per-app heuristic.
+  --iterations <n>     incr-template only: edit/measure cycles per run (default 15).
 
 Scenarios:
-  cold-prod  full vite build from clean caches; measures wall + per-plugin
-             attribution + peak RSS.
-  cold-dev   vite dev-server startup time ("ready in Xms") from clean caches.
-             Does not measure on-demand transform cost — see HMR scenarios.`);
+  cold-prod       full vite build from clean caches; measures wall + per-plugin
+                  attribution + peak RSS.
+  cold-dev        vite dev-server startup time ("ready in Xms") from clean caches.
+                  Does not measure on-demand transform cost — see HMR scenarios.
+  incr-template   dev-server HMR round-trip latency: touch a source file and
+                  wait for the update message. Reports per-iteration latencies
+                  and flags any HMR event that invalidates >1 file.`);
 }
 
 async function readNdjson(filePath) {
@@ -192,7 +209,14 @@ async function main() {
   for (let i = 0; i < args.runs; i++) {
     const runId = `${args.scenario}-${i + 1}`;
     process.stdout.write(`[build-bench] run ${i + 1}/${args.runs} ... `);
-    const result = await scenario({ appDir, appConfig, outDir: runDir, runId });
+    const result = await scenario({
+      appDir,
+      appConfig,
+      outDir: runDir,
+      runId,
+      touchFile: args.touchFile,
+      iterations: args.iterations,
+    });
     if (result.exitCode !== 0) {
       console.error(`FAILED (exit ${result.exitCode})`);
       if (result.stderr) console.error(result.stderr);
