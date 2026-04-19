@@ -24,6 +24,9 @@ explicitly requested.
 | `perf/build-bench-incremental` | PR 4: `incr-template` HMR-latency scenario (WS client to vite HMR socket) | landed (local) | `perf/build-bench-cold-dev` |
 | `perf/largeapp-babel-config-pin` | PR candidate: pin `configFile` + `babelrc: false` in fixture vite.config | landed (local, standalone) | `perf/build-bench-largeapp` |
 | `perf/largeapp-maybe-babel` | PR candidate: `maybeBabel` pattern (from @NullVoxPopuli / AuditBoard) — skip babel on files that don't need it | landed (local) | `perf/largeapp-babel-config-pin` |
+| `perf/pr-pathexpression-original-getter` | **filed as [#21](https://github.com/johanrd/ember.js/pull/21) on johanrd/ember.js (draft)** — compile-time getter fix | pushed | `main` |
+| `perf/destroyable-remove-swap-pop` | **filed as [#23](https://github.com/johanrd/ember.js/pull/23) on johanrd/ember.js (draft)** — runtime destroyable splice→swap+pop | pushed | `main` |
+| ~~`perf/whitespace-trim-native`~~ | ~~was PR candidate: regex → `trim*`~~ | **retracted** (was PR 22, closed; null under interleaved A/B) | — |
 
 **Critical distinction**: the `-babel-config-pin` and `-maybe-babel` branches are
 **fixture changes**, not ember-source changes. They measure what a
@@ -106,6 +109,22 @@ Scoring legend (1–10, higher = better):
 
 ### Landed wins
 
+#### `perf/destroyable-remove-swap-pop` → **PR 23 (draft)** — splice → swap-and-pop
+
+- **What**: `packages/@glimmer/destroyable/index.ts:58` replaces `collection.splice(index, 1)` with swap-with-last + `collection.pop()`. Avoids the O(n) element shift `splice` does. `indexOf` lookup unchanged.
+- **Why spec-identical**: element order is not observable. Only consumer of the collection is `iterate()` → `Array.prototype.forEach`. No caller asserts a particular order among destroyable siblings. Parent-side removal is batched via `scheduleDestroyed`, so a child is never spliced out while the parent is iterating.
+- **Measurability**: **10/10**. TracerBench 20-fidelity compare vs origin/main:
+  - `clearManyItems1End`: **−43 ms / −21.3 %** (90 % CI [−46, −40])
+  - `clearManyItems2End`: **−40 ms / −39.5 %** (90 % CI [−46, −36])
+  - `render1000Items1End`: −2.9 % (small)
+  - all other 17 phases: no difference
+- **Improvement**: **6/10**. Concentrated, huge on clear-5000. No regressions anywhere.
+- **Complexity**: **10/10**. 5-line diff, one file.
+
+#### `perf/pr-pathexpression-original-getter` → **PR 21 (draft)** — array-spread → direct concat
+
+- See earlier scorecard entry. Shipped as a 2-line diff with a ≤ 5 % precompile-size gain on the narrow mitata bench (−1 % to −1.6 % on `precompile` sizes).
+
 #### `perf/largeapp-babel-config-pin` — pin `configFile` in babel
 - **Measurability**: **9/10**. Clean before/after on a deterministic fixture,
   3 runs × 2 configs, noise floor ~90–300ms on an 11s build. Delta 395ms
@@ -135,6 +154,26 @@ Scoring legend (1–10, higher = better):
   keep the list of "babel-required imports" accurate for consumers (they'd
   get surprising behavior if they added a new such import and forgot to
   update the list).
+
+### Runtime investigation (non-compile-path, 2026-04-18/19)
+
+Captured a runtime CPU profile via `bin/build-bench/capture-runtime-profile.mjs` (puppeteer-free; uses `chrome-debugging-client` from tracerbench's transitive deps) while benchmark-app ran the full Krausest sequence. Analyzed ember-source-internal frames aggregated by function name. Concentrated self-time in prod-unminified build (debug code stripped, names preserved):
+
+- `remove` (destroyable): 80 ms → **addressed by PR 23**
+- `getDestroyableMeta`: 45 ms — inspected; WeakMap lookup + object allocation on miss, already minimal
+- `evaluate` / `next` / `_execute` (Glimmer VM): 25–36 ms each — too core to touch
+- `getValue` / `valueForRef` (cache / reference reads): 17–22 ms — already tight
+- `add` (Tracker): 18.5 ms — can't touch (Set is the right data structure, see §Rejected)
+- `setCustomTagFor` / `tagMetaFor` / `tagFor`: 5–13 ms each — simple Map ops
+
+**Conclusion**: Glimmer runtime is heavily tuned. Remaining self-time is spread thinly across many tiny frames (5–20 ms each); no concentrated anti-pattern. The one clean win (destroyable `remove`) has shipped as PR 23.
+
+**Rejected runtime experiments (all tracerbench-validated)**:
+
+1. *Destroyable children Array→Set on top of PR 23* — 20-fidelity tracerbench: clearManyItems1 slightly better (−48 vs −43), clearManyItems2 **worse** (−30 vs −40), +1 ms regression on clearItems4. Net not clearly better than PR 23 alone. Set iteration / allocation overhead offsets the O(1) delete benefit for the typical sizes.
+2. *Tracker instance pool (cap 16)* — duration −2.3 %, clearManyItems2 −43 % (!), but several sharp regressions: clearItems4 +22.7 %, swapRows1 +13.4 %, append1000Items2 +10.8 %.
+3. *Tracker instance pool (cap 4)* — most regressions gone but net-neutral (duration phase: no difference). Not worth shipping.
+4. *Tracker Set → Array (earlier session)* — **+20 % duration regression**. Set is the right data structure for tag accumulation. See `feedback_runtime_perf_rules.md`.
 
 ### HMR investigation (large-app)
 
