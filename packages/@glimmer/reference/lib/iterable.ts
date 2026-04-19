@@ -225,14 +225,21 @@ class IteratorWrapper implements OpaqueIterator {
 class ArrayIterator implements OpaqueIterator {
   private pos = 0;
   private started = false;
+  private empty: boolean;
 
   constructor(
     private iterator: unknown[] | readonly unknown[],
     private keyFor: KeyFor
-  ) {}
+  ) {
+    // Load-bearing: reading `.length` through a TrackedArray Proxy consumes
+    // the collection tag inside the enclosing iterator-ref track frame, so
+    // the ref invalidates when the array is mutated in place. A plain array
+    // read has no side effect.
+    this.empty = iterator.length === 0;
+  }
 
   isEmpty(): boolean {
-    return this.iterator.length === 0;
+    return this.empty;
   }
 
   next(): Nullable<IterationItem<unknown, number>> {
@@ -240,7 +247,7 @@ class ArrayIterator implements OpaqueIterator {
 
     if (!this.started) {
       this.started = true;
-      if (this.iterator.length === 0) return null;
+      if (this.empty) return null;
       value = this.iterator[0];
     } else if (this.pos >= this.iterator.length - 1) {
       return null;
