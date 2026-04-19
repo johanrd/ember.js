@@ -170,7 +170,13 @@ export function createIteratorRef(listRef: Reference, key: string) {
     let keyFor = makeKeyFor(key);
 
     if (Array.isArray(iterable)) {
-      return new ArrayIterator(iterable, keyFor);
+      // Copy into a plain array up front. For TrackedArrays this bypasses
+      // N per-item Proxy traps during iteration; the `.slice()` call itself
+      // goes through the Proxy's ARRAY_GETTER_METHODS path, which consumes
+      // the collection tag inside this track frame so autotracking is
+      // preserved. For plain arrays it's a cheap V8 slice.
+      let plain = iterable.length > 0 ? iterable.slice() : EMPTY_ARRAY;
+      return new ArrayIterator(plain, keyFor);
     }
 
     let maybeIterator = toIterator(iterable);
