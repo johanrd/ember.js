@@ -9,13 +9,15 @@ import type {
   ReferenceType,
   UnboundReference,
 } from '@glimmer/interfaces';
-import type { Revision, Tag } from '@glimmer/validator';
+import type { DirtyableTag, Revision, Tag } from '@glimmer/validator';
 import { expect } from '@glimmer/debug-util';
 import { getProp, setProp } from '@glimmer/global-context';
 import { isDict } from '@glimmer/util';
 import {
   CONSTANT_TAG,
   consumeTag,
+  createTag,
+  dirtyTag,
   INITIAL,
   track,
   validateTag,
@@ -49,6 +51,11 @@ class ReferenceImpl<T = unknown> implements Reference<T> {
 
   public compute: Nullable<() => T> = null;
   public update: Nullable<(val: T) => void> = null;
+
+  // Fast path for iterator-item refs (createIteratorItemRef). When set,
+  // valueForRef skips the track() frame since the ref consumes exactly
+  // one tag, and updateRef dirties that tag directly.
+  public iterTag: Nullable<Tag> = null;
 
   public debugLabel?: string;
 
@@ -120,6 +127,13 @@ export function createComputeRef<T = unknown>(
   return ref;
 }
 
+export function createIteratorItemRef<T>(value: T): Reference<T> {
+  const ref = new ReferenceImpl<T>(COMPUTE);
+  ref.iterTag = createTag();
+  ref.lastValue = value;
+  return ref;
+}
+
 export function createReadOnlyRef(ref: Reference): Reference {
   if (!isUpdatableRef(ref)) return ref;
 
@@ -166,16 +180,22 @@ export function valueForRef<T>(_ref: Reference<T>): T {
   let lastValue;
 
   if (tag === null || !validateTag(tag, lastRevision)) {
-    const { compute } = ref;
+    const iterTag = ref.iterTag;
+    if (iterTag !== null) {
+      // Fast path for iterator-item refs: the ref consumes exactly one tag
+      // (the iterTag), so we can skip the track() frame entirely.
+      tag = ref.tag = iterTag;
+      ref.lastRevision = valueForTag(iterTag);
+      lastValue = ref.lastValue;
+    } else {
+      const newTag = track(() => {
+        // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- @fixme
+        lastValue = ref.lastValue = ref.compute!();
+      }, DEBUG && ref.debugLabel);
 
-    const newTag = track(() => {
-      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- @fixme
-      lastValue = ref.lastValue = compute!();
-    }, DEBUG && ref.debugLabel);
-
-    tag = ref.tag = newTag;
-
-    ref.lastRevision = valueForTag(newTag);
+      tag = ref.tag = newTag;
+      ref.lastRevision = valueForTag(newTag);
+    }
   } else {
     lastValue = ref.lastValue;
   }
@@ -187,6 +207,15 @@ export function valueForRef<T>(_ref: Reference<T>): T {
 
 export function updateRef(_ref: Reference, value: unknown) {
   const ref = _ref as ReferenceImpl;
+
+  const iterTag = ref.iterTag;
+  if (iterTag !== null) {
+    if (ref.lastValue !== value) {
+      ref.lastValue = value;
+      dirtyTag(iterTag as DirtyableTag);
+    }
+    return;
+  }
 
   const update = expect(ref.update, 'called update on a non-updatable reference');
 
