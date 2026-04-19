@@ -223,40 +223,32 @@ class IteratorWrapper implements OpaqueIterator {
 }
 
 class ArrayIterator implements OpaqueIterator {
-  private current: { kind: 'empty' } | { kind: 'first'; value: unknown } | { kind: 'progress' };
   private pos = 0;
+  private started = false;
 
   constructor(
     private iterator: unknown[] | readonly unknown[],
     private keyFor: KeyFor
-  ) {
-    if (iterator.length === 0) {
-      this.current = { kind: 'empty' };
-    } else {
-      this.current = { kind: 'first', value: iterator[this.pos] };
-    }
-  }
+  ) {}
 
   isEmpty(): boolean {
-    return this.current.kind === 'empty';
+    return this.iterator.length === 0;
   }
 
   next(): Nullable<IterationItem<unknown, number>> {
     let value: unknown;
 
-    let current = this.current;
-    if (current.kind === 'first') {
-      this.current = { kind: 'progress' };
-      value = current.value;
+    if (!this.started) {
+      this.started = true;
+      if (this.iterator.length === 0) return null;
+      value = this.iterator[0];
     } else if (this.pos >= this.iterator.length - 1) {
       return null;
     } else {
       value = this.iterator[++this.pos];
     }
 
-    let { keyFor } = this;
-
-    let key = keyFor(value as Dict, this.pos);
+    let key = this.keyFor(value as Dict, this.pos);
     let memo = this.pos;
 
     return { key, value, memo };
