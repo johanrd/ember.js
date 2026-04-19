@@ -174,6 +174,8 @@ Captured a runtime CPU profile via `bin/build-bench/capture-runtime-profile.mjs`
 2. *Tracker instance pool (cap 16)* — duration −2.3 %, clearManyItems2 −43 % (!), but several sharp regressions: clearItems4 +22.7 %, swapRows1 +13.4 %, append1000Items2 +10.8 %.
 3. *Tracker instance pool (cap 4)* — most regressions gone but net-neutral (duration phase: no difference). Not worth shipping.
 4. *Tracker Set → Array (earlier session)* — **+20 % duration regression**. Set is the right data structure for tag accumulation. See `feedback_runtime_perf_rules.md`.
+5. *ArrayIterator: pool the `{ key, value, memo }` iteration item* — looked like a clean allocation-reduction (5000 alloc/sync for a 5000-row `{{#each}}`). Tracerbench: **+51 ms / +2.2 % duration regression**, render5000Items1/2 +3–3.5 %, render1000Items3 +6.7 %. V8's escape analysis was already eliding the per-iteration allocation entirely; manually pooling it into a persistent field turns free short-lived object literals into real property writes and disables the optimization.
+6. *List block bulk DOM clear via `Range.deleteContents`* — for the "all old items deleted" case in `ListBlockOpcode.sync()`, replaced the per-item `clear(opcode)` loop (5000× `removeChild`) with a single `Range.deleteContents` + a per-item `destroy()` for destructor teardown. Tracerbench: **no difference on any phase**. The per-call `removeChild` cost was only ~78 ms self across the entire 45 s benchmark (not per-phase), well under tracerbench's noise floor on any one phase. Browsers already batch mutation-triggered reflows across a sync microtask, so 5000 `removeChild` calls don't cost 5000× a single Range removal.
 
 ### HMR investigation (large-app)
 
