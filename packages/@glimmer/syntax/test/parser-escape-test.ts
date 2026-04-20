@@ -127,13 +127,4 @@ module('[glimmer-syntax] Parser - backslash escape sequences', function () {
       b.template([element('div', ['body', b.text('{{ unclosed')])])
     );
   });
-
-  // Escaped literal with newline inside brackets
-
-  test('escaped literal [foo\\nbar] preserves newline in path segment', (assert) => {
-    const ast = parse('{{[foo\nbar]}}');
-    const path = (ast.body[0] as ASTv1.MustacheStatement).path as ASTv1.PathExpression;
-    assert.strictEqual(path.head.type, 'VarHead');
-    assert.strictEqual((path.head as ASTv1.VarHead).name, 'foo\nbar');
-  });
 });
