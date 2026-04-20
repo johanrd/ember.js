@@ -40,9 +40,22 @@ function convertToIntNew(prop) {
 // numeric-index access dominates during iteration, but method/property
 // lookups interleave heavily with every computed-property re-derivation.
 const METHOD_NAMES = [
-  'length', 'map', 'filter', 'forEach', 'slice', 'find', 'findIndex',
-  'includes', 'indexOf', 'some', 'every', 'reduce', 'concat',
-  'constructor', 'toString', 'valueOf',
+  'length',
+  'map',
+  'filter',
+  'forEach',
+  'slice',
+  'find',
+  'findIndex',
+  'includes',
+  'indexOf',
+  'some',
+  'every',
+  'reduce',
+  'concat',
+  'constructor',
+  'toString',
+  'valueOf',
 ];
 
 function buildMixedProps(indexCount, methodCount) {
