@@ -105,7 +105,13 @@ for (const n of SIZES) {
 }
 
 // Volatile tag (revision = NaN) scenarios — exercise the !== branch
-const volatileSubtags = [makeSubtag(1), makeSubtag(2), makeSubtag(NaN), makeSubtag(3), makeSubtag(4)];
+const volatileSubtags = [
+  makeSubtag(1),
+  makeSubtag(2),
+  makeSubtag(NaN),
+  makeSubtag(3),
+  makeSubtag(4),
+];
 bench('COMPUTE old Math.max  N=5 w/ volatile', () => {
   const c = new OldCombinator(volatileSubtags);
   return doNotOptimize(c[COMPUTE]());
