@@ -14,6 +14,7 @@ export {
   type Syntax,
   type TemplateIdFn,
 } from './lib/parser/tokenizer-event-handlers';
+export { unifiedPreprocess } from './lib/parser/parser';
 export * as src from './lib/source/api';
 export { SourceSlice } from './lib/source/slice';
 export {
@@ -35,7 +36,7 @@ export type * as ASTv1 from './lib/v1/api';
 export { default as builders } from './lib/v1/public-builders';
 export { default as visitorKeys } from './lib/v1/visitor-keys';
 export * as ASTv2 from './lib/v2/api';
-export { normalize } from './lib/v2/normalize';
+export { normalize, normalizeAST } from './lib/v2/normalize';
 export { node } from './lib/v2/objects/node';
 
 /** @deprecated use WalkerPath instead */
