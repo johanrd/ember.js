@@ -39,6 +39,13 @@ const ARRAY_WRITE_THEN_READ_METHODS = new Set<string | symbol>(['fill', 'push', 
 
 function convertToInt(prop: number | string | symbol): number | null {
   if (typeof prop === 'symbol') return null;
+  if (typeof prop === 'number') return prop % 1 === 0 ? prop : null;
+
+  // Reject non-digit-leading strings before paying for Number().
+  // Most Proxy-trap property accesses on a TrackedArray are method names
+  // (.length, .map, .forEach, etc.) — none start with '0'-'9'.
+  const c = prop.charCodeAt(0);
+  if (c < 48 || c > 57) return null;
 
   const num = Number(prop);
 
