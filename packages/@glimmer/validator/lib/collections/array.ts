@@ -154,21 +154,26 @@ class TrackedArray<T = unknown> {
 
   #collection = createUpdatableTag();
 
-  #storages = new Map<number, ReturnType<typeof createUpdatableTag>>();
+  // Array-backed per-index storage. Array[i] access is several times faster
+  // than Map.get for numeric keys. We don't apply NVP's INDEX_STORAGE_THRESHOLD
+  // cap — it would lose granular invalidation past index 10k. The sparse-array
+  // de-opt concern was tested in microbench; even random sparse access stayed
+  // significantly faster than Map up to n=5000.
+  #storages: Array<ReturnType<typeof createUpdatableTag> | undefined> = [];
 
   #readStorageFor(index: number) {
-    let storage = this.#storages.get(index);
+    let storage = this.#storages[index];
 
     if (storage === undefined) {
       storage = createUpdatableTag();
-      this.#storages.set(index, storage);
+      this.#storages[index] = storage;
     }
 
     consumeTag(storage);
   }
 
   #dirtyStorageFor(index: number): void {
-    const storage = this.#storages.get(index);
+    const storage = this.#storages[index];
 
     if (storage) {
       DIRTY_TAG(storage);
@@ -177,7 +182,7 @@ class TrackedArray<T = unknown> {
 
   #dirtyCollection() {
     DIRTY_TAG(this.#collection);
-    this.#storages.clear();
+    this.#storages.length = 0;
   }
 }
 
