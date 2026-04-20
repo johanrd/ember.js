@@ -74,24 +74,8 @@ function makeKeyFor(key: string) {
 }
 
 class WeakMapWithPrimitives<T> {
-  private _weakMap?: WeakMap<object, T>;
-  private _primitiveMap?: Map<unknown, T>;
-
-  private get weakMap() {
-    if (this._weakMap === undefined) {
-      this._weakMap = new WeakMap();
-    }
-
-    return this._weakMap;
-  }
-
-  private get primitiveMap() {
-    if (this._primitiveMap === undefined) {
-      this._primitiveMap = new Map();
-    }
-
-    return this._primitiveMap;
-  }
+  private weakMap = new WeakMap<object, T>();
+  private primitiveMap = new Map<unknown, T>();
 
   set(key: unknown, value: T) {
     if (isIndexable(key)) {
