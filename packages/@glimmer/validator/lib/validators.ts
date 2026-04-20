@@ -130,39 +130,43 @@ class MonomorphicTagImpl<T extends MonomorphicTagId = MonomorphicTagId> {
       }
 
       this.lastChecked = ++$REVISION;
-    } else if (lastChecked !== $REVISION) {
-      this.isUpdating = true;
-      this.lastChecked = $REVISION;
-
-      try {
-        let { subtag, revision } = this;
-
-        if (subtag !== null) {
-          if (Array.isArray(subtag)) {
-            for (const tag of subtag) {
-              let value = tag[COMPUTE]();
-              revision = Math.max(value, revision);
-            }
-          } else {
-            let subtagValue = subtag[COMPUTE]();
-
-            if (subtagValue === this.subtagBufferCache) {
-              revision = Math.max(revision, this.lastValue);
-            } else {
-              // Clear the temporary buffer cache
-              this.subtagBufferCache = null;
-              revision = Math.max(revision, subtagValue);
-            }
-          }
-        }
-
-        this.lastValue = revision;
-      } finally {
-        this.isUpdating = false;
-      }
+      return this.lastValue;
     }
 
-    return this.lastValue;
+    if (lastChecked === $REVISION) {
+      return this.lastValue;
+    }
+
+    this.isUpdating = true;
+    this.lastChecked = $REVISION;
+
+    try {
+      let { subtag, revision } = this;
+
+      if (subtag !== null) {
+        if (Array.isArray(subtag)) {
+          for (const tag of subtag) {
+            let value = tag[COMPUTE]();
+            revision = Math.max(value, revision);
+          }
+        } else {
+          let subtagValue = subtag[COMPUTE]();
+
+          if (subtagValue === this.subtagBufferCache) {
+            revision = Math.max(revision, this.lastValue);
+          } else {
+            // Clear the temporary buffer cache
+            this.subtagBufferCache = null;
+            revision = Math.max(revision, subtagValue);
+          }
+        }
+      }
+
+      this.lastValue = revision;
+      return revision;
+    } finally {
+      this.isUpdating = false;
+    }
   }
 
   static updateTag(this: void, _tag: UpdatableTag, _subtag: Tag) {
