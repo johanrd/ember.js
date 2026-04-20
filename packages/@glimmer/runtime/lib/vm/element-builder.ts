@@ -38,22 +38,6 @@ export interface LastNode {
   lastNode(): SimpleNode;
 }
 
-class First {
-  constructor(private node: SimpleNode) {}
-
-  firstNode(): SimpleNode {
-    return this.node;
-  }
-}
-
-class Last {
-  constructor(private node: SimpleNode) {}
-
-  lastNode(): SimpleNode {
-    return this.node;
-  }
-}
-
 export class Fragment implements Bounds {
   private bounds: Bounds;
 
@@ -396,8 +380,12 @@ export class NewTreeBuilder implements TreeBuilder {
 export class AppendingBlockImpl implements AppendingBlock {
   declare debug?: { first: () => Nullable<SimpleNode>; last: () => Nullable<SimpleNode> };
 
-  protected first: Nullable<FirstNode> = null;
-  protected last: Nullable<LastNode> = null;
+  // Store either a raw SimpleNode or a Bounds object, with boolean flags
+  // to discriminate. Avoids wrapper allocations for the common raw-node case.
+  protected _first: Nullable<SimpleNode | Bounds> = null;
+  protected _last: Nullable<SimpleNode | Bounds> = null;
+  protected _firstIsBounds = false;
+  protected _lastIsBounds = false;
   protected nesting = 0;
 
   constructor(private parent: SimpleElement) {
@@ -405,8 +393,8 @@ export class AppendingBlockImpl implements AppendingBlock {
 
     if (LOCAL_DEBUG) {
       this.debug = {
-        first: () => this.first?.debug?.first() ?? null,
-        last: () => this.last?.debug?.last() ?? null,
+        first: () => (this._first ? this.firstNode() : null),
+        last: () => (this._last ? this.lastNode() : null),
       };
     }
   }
@@ -417,20 +405,20 @@ export class AppendingBlockImpl implements AppendingBlock {
 
   firstNode(): SimpleNode {
     let first = expect(
-      this.first,
+      this._first,
       'cannot call `firstNode()` while `AppendingBlock` is still initializing'
     );
 
-    return first.firstNode();
+    return this._firstIsBounds ? (first as Bounds).firstNode() : (first as SimpleNode);
   }
 
   lastNode(): SimpleNode {
     let last = expect(
-      this.last,
+      this._last,
       'cannot call `lastNode()` while `AppendingBlock` is still initializing'
     );
 
-    return last.lastNode();
+    return this._lastIsBounds ? (last as Bounds).lastNode() : (last as SimpleNode);
   }
 
   openElement(element: SimpleElement) {
@@ -445,25 +433,29 @@ export class AppendingBlockImpl implements AppendingBlock {
   didAppendNode(node: SimpleNode) {
     if (this.nesting !== 0) return;
 
-    if (!this.first) {
-      this.first = new First(node);
+    if (this._first === null) {
+      this._first = node;
+      this._firstIsBounds = false;
     }
 
-    this.last = new Last(node);
+    this._last = node;
+    this._lastIsBounds = false;
   }
 
   didAppendBounds(bounds: Bounds) {
     if (this.nesting !== 0) return;
 
-    if (!this.first) {
-      this.first = bounds;
+    if (this._first === null) {
+      this._first = bounds;
+      this._firstIsBounds = true;
     }
 
-    this.last = bounds;
+    this._last = bounds;
+    this._lastIsBounds = true;
   }
 
   finalize(stack: TreeBuilder) {
-    if (this.first === null) {
+    if (this._first === null) {
       stack.appendComment('');
     }
   }
@@ -517,8 +509,10 @@ export class ResettableBlockImpl extends AppendingBlockImpl implements Resettabl
     destroy(this);
     let nextSibling = clear(this);
 
-    this.first = null;
-    this.last = null;
+    this._first = null;
+    this._last = null;
+    this._firstIsBounds = false;
+    this._lastIsBounds = false;
     this.nesting = 0;
 
     return nextSibling;
