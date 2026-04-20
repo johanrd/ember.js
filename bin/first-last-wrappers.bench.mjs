@@ -84,8 +84,8 @@ function makeNode() {
   return { nodeType: 1, parentNode: null };
 }
 
-const NODES_PER_ROW_SHALLOW = 5;    // Krausest-like
-const NODES_PER_ROW_DEEP = 20;      // form-heavy app template
+const NODES_PER_ROW_SHALLOW = 5; // Krausest-like
+const NODES_PER_ROW_DEEP = 20; // form-heavy app template
 const ROWS = 1000;
 
 const shallowNodes = Array.from({ length: NODES_PER_ROW_SHALLOW * ROWS }, makeNode);
