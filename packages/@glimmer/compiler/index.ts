@@ -12,3 +12,6 @@ export { defaultId, precompile, precompileJSON, type PrecompileOptions } from '.
 
 // exported only for tests!
 export { default as WireFormatDebugger } from './lib/wire-format-debug';
+
+// exported only for benchmarking / exploration (not stable API)
+export { _precompileJSONWithPhaseTiming } from './lib/compiler';

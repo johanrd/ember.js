@@ -9,4 +9,9 @@
 // sink.
 export { default as precompile } from './lib/system/precompile';
 export { buildCompileOptions as _buildCompileOptions } from './lib/system/compile-options';
-export { preprocess as _preprocess, print as _print } from '@glimmer/syntax';
+export {
+  preprocess as _preprocess,
+  print as _print,
+  unifiedPreprocess as _unifiedPreprocess,
+} from '@glimmer/syntax';
+export { _precompileJSONWithPhaseTiming } from '@glimmer/compiler';

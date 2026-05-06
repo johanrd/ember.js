@@ -15,6 +15,6 @@ export {
 export type { EmberPrecompileOptions } from './types';
 
 export { preprocess as _preprocess, print as _print } from '@glimmer/syntax';
-export { precompile as _precompile } from '@glimmer/compiler';
+export { precompile as _precompile, _precompileJSONWithPhaseTiming } from '@glimmer/compiler';
 
 export { _GlimmerSyntax, VERSION };
