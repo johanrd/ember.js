@@ -100,10 +100,7 @@ export const outletHelper = internalHelper(
 
           wrapperArgs['model'] = createComputeRef(() => {
             if (lastState === state) {
-              let currentOutlet = valueForRef(outletRef);
-              if (currentOutlet?.render?.controller === controller) {
-                model = valueForRef(modelRef);
-              }
+              model = valueForRef(modelRef);
             }
             return model;
           });
