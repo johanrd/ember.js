@@ -74,6 +74,10 @@ function buildDynamicProperty(
     return new OptionSelectedDynamicAttribute(name, attribute);
   }
 
+  if (name === 'disabled') {
+    return new DisabledDynamicProperty(name, attribute);
+  }
+
   return new DefaultDynamicProperty(name, attribute);
 }
 
@@ -145,6 +149,15 @@ export class DefaultDynamicProperty extends DynamicAttribute {
     } else {
       element.removeAttribute(this.normalizedName);
     }
+  }
+}
+
+export class DisabledDynamicProperty extends DefaultDynamicProperty {
+  override update(value: unknown, env: Environment): void {
+    // Disabling a focused element makes the browser fire `blur` synchronously;
+    // defer the write to transaction commit so event listeners run outside the
+    // render transaction.
+    env.scheduleAttributeUpdate(() => super.update(value, env));
   }
 }
 

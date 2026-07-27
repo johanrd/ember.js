@@ -38,6 +38,7 @@ export interface Environment {
 
   scheduleInstallModifier(modifier: ModifierInstance): void;
   scheduleUpdateModifier(modifier: ModifierInstance): void;
+  scheduleAttributeUpdate(update: () => void): void;
 
   begin(): void;
   commit(): void;
