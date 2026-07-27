@@ -28,6 +28,7 @@ export const TRANSACTION: TransactionSymbol = Symbol('TRANSACTION') as Transacti
 class TransactionImpl implements Transaction {
   public scheduledInstallModifiers: ModifierInstance[] = [];
   public scheduledUpdateModifiers: ModifierInstance[] = [];
+  public scheduledAttributeUpdates: (() => void)[] = [];
   public createdComponents: ComponentInstanceWithCreate[] = [];
   public updatedComponents: ComponentInstanceWithCreate[] = [];
 
@@ -47,7 +48,15 @@ class TransactionImpl implements Transaction {
     this.scheduledUpdateModifiers.push(modifier);
   }
 
+  scheduleAttributeUpdate(update: () => void) {
+    this.scheduledAttributeUpdates.push(update);
+  }
+
   commit() {
+    for (const update of this.scheduledAttributeUpdates) {
+      update();
+    }
+
     let { createdComponents, updatedComponents } = this;
 
     for (const { manager, state } of createdComponents) {
@@ -171,6 +180,10 @@ export class EnvironmentImpl implements Environment {
     if (this.isInteractive) {
       this.transaction.scheduleUpdateModifier(modifier);
     }
+  }
+
+  scheduleAttributeUpdate(update: () => void) {
+    this.transaction.scheduleAttributeUpdate(update);
   }
 
   commit() {

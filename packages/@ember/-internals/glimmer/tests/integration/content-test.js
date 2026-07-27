@@ -1806,7 +1806,7 @@ if (DEBUG) {
 moduleFor(
   'Dynamic content tests: disabling a focused element',
   class extends RenderingTestCase {
-    async '@todo a {{on "blur"}} listener may update rendered state when the element becomes disabled (GH#19287)'(
+    async '@test a {{on "blur"}} listener may update rendered state when the element becomes disabled (GH#19287)'(
       assert
     ) {
       let error;

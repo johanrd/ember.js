@@ -410,7 +410,10 @@ export class UpdateDynamicAttributeOpcode implements UpdatingOpcode {
       let value = valueForRef(reference);
 
       if (initialized) {
-        attribute.update(value, env);
+        // Defer the DOM write to transaction commit: writes like `disabled`
+        // can synchronously dispatch events (e.g. `blur` on a focused
+        // element), and listeners must not run inside the render transaction.
+        env.scheduleAttributeUpdate(() => attribute.update(value, env));
       } else {
         initialized = true;
       }
