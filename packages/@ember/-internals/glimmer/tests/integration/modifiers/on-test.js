@@ -298,7 +298,7 @@ moduleFor(
       this.assertCounts({ adds: 2, removes: 0 });
     }
 
-    async '@todo all listeners for an event run even when an earlier one removes the element (GH#19344)'(
+    async '@test all listeners for an event run even when an earlier one removes the element (GH#19344)'(
       assert
     ) {
       let sequence = [];
