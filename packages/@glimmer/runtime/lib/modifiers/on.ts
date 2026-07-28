@@ -34,21 +34,44 @@ interface Listener {
   options: AddEventListenerOptions | undefined;
 }
 
+interface HandlerRecord {
+  callback: EventListener;
+  once: boolean | undefined;
+}
+
+interface Invoker {
+  native: EventListener;
+  records: HandlerRecord[];
+  options: AddEventListenerOptions | undefined;
+}
+
+// All handlers for the same (element, event, capture/passive bucket) share a
+// single native listener that dispatches to a snapshot of the handler list.
+// This keeps sibling {{on}} handlers in one callback frame, so a render flush
+// scheduled by one handler cannot run (microtask checkpoint) and tear down the
+// others before they are invoked. See GH#19344; same architecture as Vue's
+// event invoker.
+const INVOKERS = new WeakMap<Element, Map<string, Invoker>>();
+
+function bucketKey(eventName: string, capture: boolean | undefined, passive: boolean | undefined) {
+  return `${eventName}|${capture ? 'c' : 'b'}|${passive === undefined ? 'u' : passive ? 'p' : 'n'}`;
+}
+
 export class OnModifierState {
   public tag = createUpdatableTag();
   public element: Element;
   public args: CapturedArguments;
   public listener: Listener | null = null;
+  private record: HandlerRecord | null = null;
 
   constructor(element: Element, args: CapturedArguments) {
     this.element = element;
     this.args = args;
 
     registerDestructor(this, () => {
-      let { element, listener } = this;
-      if (listener) {
-        let { eventName, callback, options } = listener;
-        removeEventListener(element, eventName, callback, options);
+      let { element, listener, record } = this;
+      if (listener && record) {
+        removeHandler(element, listener.eventName, listener.capture, listener.passive, record);
       }
     });
   }
@@ -213,11 +236,11 @@ export class OnModifierState {
         options,
       };
 
-      if (listener) {
-        removeEventListener(element, listener.eventName, listener.callback, listener.options);
+      if (listener && this.record) {
+        removeHandler(element, listener.eventName, listener.capture, listener.passive, this.record);
       }
 
-      addEventListener(element, eventName, callback, options);
+      this.record = addHandler(element, eventName, capture, passive, callback, once);
     }
   }
 }
@@ -225,25 +248,89 @@ export class OnModifierState {
 let adds = 0;
 let removes = 0;
 
-function removeEventListener(
+function addHandler(
   element: Element,
   eventName: string,
+  capture: boolean | undefined,
+  passive: boolean | undefined,
   callback: EventListener,
-  options?: AddEventListenerOptions
-): void {
-  removes++;
+  once: boolean | undefined
+): HandlerRecord {
+  adds++;
 
-  element.removeEventListener(eventName, callback, options);
+  let buckets = INVOKERS.get(element);
+  if (buckets === undefined) {
+    buckets = new Map();
+    INVOKERS.set(element, buckets);
+  }
+
+  let key = bucketKey(eventName, capture, passive);
+  let invoker = buckets.get(key);
+
+  if (invoker === undefined) {
+    let records: HandlerRecord[] = [];
+    let native: EventListener = function (this: Element, event: Event) {
+      // Snapshot: handlers removed while this event dispatches still run,
+      // matching pre-dispatch registration state.
+      for (let record of records.slice()) {
+        record.callback.call(this, event);
+
+        if (record.once) {
+          // countRemove=false: native `once` auto-removal was likewise
+          // invisible to the adds/removes counters.
+          removeHandler(element, eventName, capture, passive, record, false);
+        }
+      }
+    };
+
+    let options: AddEventListenerOptions | undefined = undefined;
+    if (passive !== undefined || capture !== undefined) {
+      // `once` is implemented per-handler above, not passed to the browser.
+      options = { passive, capture };
+    }
+
+    invoker = { native, records, options };
+    buckets.set(key, invoker);
+    element.addEventListener(eventName, native, options);
+  }
+
+  let record: HandlerRecord = { callback, once };
+  invoker.records.push(record);
+  return record;
 }
 
-function addEventListener(
+function removeHandler(
   element: Element,
   eventName: string,
-  callback: EventListener,
-  options?: AddEventListenerOptions
+  capture: boolean | undefined,
+  passive: boolean | undefined,
+  record: HandlerRecord,
+  countRemove = true
 ): void {
-  adds++;
-  element.addEventListener(eventName, callback, options);
+  let buckets = INVOKERS.get(element);
+  let key = bucketKey(eventName, capture, passive);
+  let invoker = buckets?.get(key);
+
+  if (invoker === undefined) {
+    return;
+  }
+
+  let index = invoker.records.indexOf(record);
+  if (index === -1) {
+    // already removed (e.g. a `once` handler whose modifier was also destroyed)
+    return;
+  }
+
+  if (countRemove) {
+    removes++;
+  }
+  invoker.records.splice(index, 1);
+
+  if (invoker.records.length === 0) {
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- checked above
+    buckets!.delete(key);
+    element.removeEventListener(eventName, invoker.native, invoker.options);
+  }
 }
 
 /**
