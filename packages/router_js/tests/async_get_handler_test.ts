@@ -1,7 +1,8 @@
 import type { Route } from '../index';
 import type { Dict } from '../lib/core';
 import { Promise } from 'rsvp';
-import { createHandler, TestRouter } from './test_helpers';
+import type RouteInfo from '../lib/route-info';
+import { assertAbort, createHandler, shouldNotHappen, trigger, TestRouter } from './test_helpers';
 
 function map(router: TestRouter) {
   router.map(function (match) {
@@ -111,3 +112,95 @@ QUnit.test('calls hooks of lazily-resolved routes in order', function (assert) {
     done();
   }, null);
 });
+
+QUnit.test(
+  'a query param transition started while a lazily-resolved route is loading does not throw',
+  async function (assert) {
+    assert.expect(3);
+
+    let pendingRoutes: (() => void)[] = [];
+    let urls: string[] = [];
+
+    function consumeAllFinalQueryParams(params: Dict<unknown>, finalParams: Dict<unknown>[]) {
+      for (let key in params) {
+        let value = params[key];
+        delete params[key];
+        finalParams.push({ key, value });
+      }
+      return true;
+    }
+
+    class LazyRouter extends TestRouter {
+      getRoute(name: string) {
+        let route =
+          routes[name] ||
+          (routes[name] = createHandler(name, {
+            events: { finalizeQueryParamChange: consumeAllFinalQueryParams },
+          }));
+
+        // `child` stands in for a route in a bundle that has not been
+        // downloaded yet: `getRoute` hands back a promise, so its routeInfo
+        // has no `route` until that promise settles.
+        if (name === 'child') {
+          return new Promise<Route>((resolve) => pendingRoutes.push(() => resolve(route)));
+        }
+
+        return route;
+      }
+      triggerEvent(
+        routeInfos: RouteInfo<Route>[],
+        ignoreFailure: boolean,
+        name: string,
+        args: any[]
+      ) {
+        trigger(routeInfos, ignoreFailure, name, ...args);
+      }
+      updateURL(url: string) {
+        urls.push(url);
+      }
+      replaceURL(url: string) {
+        urls.push(url);
+      }
+    }
+
+    router = new LazyRouter();
+    router.map(function (match) {
+      match('/parent').to('parent', function (match) {
+        match('/child/:id').to('child');
+      });
+    });
+
+    async function resolvePendingRoutes() {
+      for (let i = 0; i < 4; i++) {
+        pendingRoutes.splice(0).forEach((resolve) => resolve());
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      }
+    }
+
+    let initial = router.transitionTo('/parent/child/1');
+    await resolvePendingRoutes();
+    await initial;
+
+    // Enter the same route with a new dynamic segment and leave the transition
+    // in flight while `child` loads.
+    let inFlight = router.transitionTo('/parent/child/2');
+
+    // While that is still loading, only a query param changes. This reads
+    // `routeInfo.route` off the in-flight transition's state, where the lazily
+    // resolved routes have no `route` yet.
+    let queryParams = router.transitionTo({ queryParams: { sort: 'asc' } });
+
+    await resolvePendingRoutes();
+
+    await queryParams;
+    assert.ok(true, 'the query param transition resolves rather than throwing');
+
+    await inFlight.then(shouldNotHappen(assert), assertAbort(assert));
+
+    assert.deepEqual(
+      urls,
+      ['/parent/child/1', '/parent/child/2?sort=asc'],
+      'the query param is reflected in the URL'
+    );
+  }
+);
