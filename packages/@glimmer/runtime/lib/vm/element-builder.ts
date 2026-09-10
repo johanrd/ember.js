@@ -41,8 +41,19 @@ export interface LastNode {
   lastNode(): SimpleNode;
 }
 
+// MEASUREMENT ONLY
+const COUNTS = ((globalThis as any).__EB_COUNTS ??= {
+  firstAlloc: 0,
+  lastAlloc: 0,
+  didAppendNode: 0,
+  didAppendNodeAtTop: 0,
+  didAppendBoundsAtTop: 0,
+});
+
 class First {
-  constructor(private node: SimpleNode) {}
+  constructor(private node: SimpleNode) {
+    COUNTS.firstAlloc++;
+  }
 
   firstNode(): SimpleNode {
     return this.node;
@@ -50,7 +61,9 @@ class First {
 }
 
 class Last {
-  constructor(private node: SimpleNode) {}
+  constructor(private node: SimpleNode) {
+    COUNTS.lastAlloc++;
+  }
 
   lastNode(): SimpleNode {
     return this.node;
@@ -448,7 +461,9 @@ export class AppendingBlockImpl implements AppendingBlock {
   }
 
   didAppendNode(node: SimpleNode) {
+    COUNTS.didAppendNode++;
     if (this.nesting !== 0) return;
+    COUNTS.didAppendNodeAtTop++;
 
     if (!this.first) {
       this.first = new First(node);
@@ -459,6 +474,7 @@ export class AppendingBlockImpl implements AppendingBlock {
 
   didAppendBounds(bounds: Bounds) {
     if (this.nesting !== 0) return;
+    COUNTS.didAppendBoundsAtTop++;
 
     if (!this.first) {
       this.first = bounds;
