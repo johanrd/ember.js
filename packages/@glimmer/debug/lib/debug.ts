@@ -57,7 +57,6 @@ export function logOpcodeSlice(context: CompilationContext, start: number, end: 
 
       _size = opcode.size;
     }
-    opcode.seek(-_size);
     LOCAL_LOGGER.groupEnd();
   }
 }

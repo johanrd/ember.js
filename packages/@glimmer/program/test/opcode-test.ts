@@ -54,51 +54,58 @@ QUnit.test('seek decodes the whole header, not just part of it', (assert) => {
   assert.strictEqual(op.op1, 30, 'op1 after seek');
 });
 
-QUnit.test(
-  'the decoded header stays in sync with the operands however the cursor moves',
-  (assert) => {
-    let { heap, addresses } = heapWith([
-      { type: 7, operands: [10, 20] },
-      { type: 9, operands: [30], machine: true },
-    ]);
+QUnit.test('the cursor can only be moved by seek', (assert) => {
+  let { heap, addresses } = heapWith([
+    { type: 7, operands: [10, 20] },
+    { type: 9, operands: [30], machine: true },
+  ]);
 
-    let op = new RuntimeOpImpl(heap);
+  let op = new RuntimeOpImpl(heap);
 
-    op.seek(addresses[1]!);
+  op.seek(addresses[1]!);
 
-    // Assigning `offset` is how the cursor moved before `seek` existed, and it is
-    // still a writable field on the impl. Whatever moves the cursor, the decoded
-    // header has to describe the instruction the operands are read from.
-    op.offset = addresses[0]!;
+  // Assigning `offset` is how the cursor moved before `seek` existed. It has to be
+  // rejected now, because it would move `op1`/`op2`/`op3` to another instruction
+  // while `type`/`size`/`isMachine` still described this one.
+  assert.throws(
+    () => {
+      (op as unknown as { offset: number }).offset = addresses[0]!;
+    },
+    TypeError,
+    'offset is not writable'
+  );
 
-    assert.strictEqual(op.op1, 10, 'op1 follows the cursor');
-    assert.strictEqual(op.type, 7, 'type follows the cursor');
-    assert.strictEqual(op.size, 3, 'size follows the cursor');
-    assert.strictEqual(op.isMachine, 0, 'isMachine follows the cursor');
-  }
-);
+  assert.strictEqual(op.type, 9, 'type still describes the instruction seeked to');
+  assert.strictEqual(op.op1, 30, 'op1 still describes the instruction seeked to');
+});
 
-QUnit.test('walking a slice the way logOpcodeSlice does does not throw', (assert) => {
+QUnit.test('walking a slice the way logOpcodeSlice does visits every instruction', (assert) => {
   let { heap, addresses, end } = heapWith([
     { type: 7, operands: [10, 20] },
     { type: 9, operands: [30], machine: true },
   ]);
 
   let op = new RuntimeOpImpl(heap);
-  let start = addresses[0]!;
+  let visited: number[] = [];
 
-  // The loop body of logOpcodeSlice (packages/@glimmer/debug/lib/debug.ts).
+  // The loop in logOpcodeSlice (packages/@glimmer/debug/lib/debug.ts).
   let _size = 0;
-  for (let i = start; i <= end; i = i + _size) {
+  for (let i = addresses[0]!; i <= end; i = i + _size) {
     op.seek(i);
+    visited.push(op.type);
     _size = op.size;
   }
 
-  assert.strictEqual(_size, 2, 'the walk ended on the last instruction');
+  assert.deepEqual(visited, [7, 9], 'every instruction in the slice was decoded');
+});
 
-  // ...and the line that follows that loop. `_size` is always >= 1, so this
-  // moves the cursor to a negative address.
-  op.seek(-_size);
+QUnit.test('seeking outside the heap throws instead of decoding garbage', (assert) => {
+  let { heap } = heapWith([{ type: 7, operands: [10, 20] }]);
 
-  assert.ok(true, 'parking the cursor after the walk did not throw');
+  let op = new RuntimeOpImpl(heap);
+
+  // `seek` reads the header eagerly, so an out-of-heap address is a hard error
+  // rather than a cursor that happens to be parked somewhere unused. Anything
+  // that used to move the cursor to a throwaway position has to stop doing so.
+  assert.throws(() => op.seek(-1), /Expected value to be present/u, 'negative address');
 });
