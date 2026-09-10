@@ -5,12 +5,19 @@ import { ARG_SHIFT, MACHINE_MASK, OPERAND_LEN_MASK, TYPE_MASK } from '@glimmer/v
  * A cursor over the program heap
  */
 export class RuntimeOpImpl implements RuntimeOp {
-  public offset = 0;
+  #offset = 0;
   public type: SomeVmOp = 0;
   public size = 0;
   public isMachine: 0 | 1 = 0;
 
   constructor(readonly heap: ProgramHeap) {}
+
+  // `seek` is the only way to move the cursor, because it is what refreshes the
+  // decoded header. A writable `offset` would let `op1`/`op2`/`op3` describe one
+  // instruction while `type`/`size`/`isMachine` describe another.
+  get offset() {
+    return this.#offset;
+  }
 
   /**
    * decodes the header word once,
@@ -19,7 +26,7 @@ export class RuntimeOpImpl implements RuntimeOp {
   seek(offset: number): this {
     let header = this.heap.getbyaddr(offset);
 
-    this.offset = offset;
+    this.#offset = offset;
     this.type = (header & TYPE_MASK) as SomeVmOp;
     this.size = ((header & OPERAND_LEN_MASK) >> ARG_SHIFT) + 1;
     this.isMachine = header & MACHINE_MASK ? 1 : 0;
@@ -28,14 +35,14 @@ export class RuntimeOpImpl implements RuntimeOp {
   }
 
   get op1() {
-    return this.heap.getbyaddr(this.offset + 1);
+    return this.heap.getbyaddr(this.#offset + 1);
   }
 
   get op2() {
-    return this.heap.getbyaddr(this.offset + 2);
+    return this.heap.getbyaddr(this.#offset + 2);
   }
 
   get op3() {
-    return this.heap.getbyaddr(this.offset + 3);
+    return this.heap.getbyaddr(this.#offset + 3);
   }
 }
