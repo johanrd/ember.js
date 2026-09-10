@@ -246,7 +246,7 @@ class ArrayIterator implements OpaqueIterator {
   next(): Nullable<IterationItem<unknown, number>> {
     let memo = ++this.pos;
 
-    if (memo >= this.length) return null;
+    if (memo >= this.iterator.length) return null;
 
     let value = this.iterator[memo];
 
