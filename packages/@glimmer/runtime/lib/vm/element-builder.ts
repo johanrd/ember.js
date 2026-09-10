@@ -41,6 +41,15 @@ export interface LastNode {
   lastNode(): SimpleNode;
 }
 
+// MEASUREMENT ONLY
+const COUNTS = ((globalThis as any).__EB_COUNTS ??= {
+  firstAlloc: 0,
+  lastAlloc: 0,
+  didAppendNode: 0,
+  didAppendNodeAtTop: 0,
+  didAppendBoundsAtTop: 0,
+});
+
 /** Resolve a block edge for debug output without throwing mid-build. */
 function debugEdge(
   node: Nullable<SimpleNode>,
@@ -452,7 +461,9 @@ export class AppendingBlockImpl implements AppendingBlock {
   }
 
   didAppendNode(node: SimpleNode) {
+    COUNTS.didAppendNode++;
     if (this.nesting !== 0) return;
+    COUNTS.didAppendNodeAtTop++;
 
     if (this.first === null && this.firstBlock === null) {
       this.first = node;
@@ -464,6 +475,7 @@ export class AppendingBlockImpl implements AppendingBlock {
 
   didAppendBounds(bounds: Bounds) {
     if (this.nesting !== 0) return;
+    COUNTS.didAppendBoundsAtTop++;
 
     if (this.first === null && this.firstBlock === null) {
       this.firstBlock = bounds;
