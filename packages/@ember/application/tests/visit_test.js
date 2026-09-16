@@ -65,6 +65,22 @@ moduleFor(
       });
     }
 
+    [`@test isBrowser: false rejects a string rootElement instead of rendering into the string`](
+      assert
+    ) {
+      this.add('template:index', precompileTemplate('<div class="foo">Hi, Mom!</div>'));
+
+      return this.visit('/', { isBrowser: false }).then(
+        () => assert.ok(false, 'visit should have rejected'),
+        (error) => {
+          assert.ok(
+            /selector string.*environment without a DOM/.test(error.message),
+            `rejected with an assertion, got: ${error.message}`
+          );
+        }
+      );
+    }
+
     [`@test _renderMode: rehydration`](assert) {
       assert.expect(2);
 
